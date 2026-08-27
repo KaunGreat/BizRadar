@@ -16,6 +16,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -91,11 +92,17 @@ class LocationSnapshot(Base):
 
 
 class Project(Base):
-    """История анализов: сохранённые проекты (город, ниша, скор, снимок + отчёт)."""
+    """История анализов: сохранённые проекты (город, ниша, скор, снимок + отчёт).
+
+    user_id — владелец проекта (внешний ключ на users). NULL означает
+    гостевой анализ (создан до входа): такие записи не показываются никому
+    в списке и доступны только по прямой ссылке-идентификатору.
+    """
 
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     niche_id = Column(String, nullable=False)
     niche_title = Column(String, nullable=False)
     city = Column(String, nullable=False, server_default=text("''"))
@@ -106,7 +113,10 @@ class Project(Base):
     snapshot = Column(Text, nullable=False, server_default=text("'{}'"))
     created_at = Column(DateTime, nullable=False, server_default=_NOW)
 
-    __table_args__ = (Index("idx_projects_created", created_at.desc()),)
+    __table_args__ = (
+        Index("idx_projects_created", created_at.desc()),
+        Index("idx_projects_user_created", "user_id", created_at.desc()),
+    )
 
 
 class User(Base):

@@ -44,17 +44,9 @@ export interface ProjectCreatePayload {
   snapshot: ProjectSnapshot;
 }
 
-const LS_KEY = "bizradar-projects-v1";
+import { apiFetch } from "./auth";
 
-async function timedFetch(url: string, init?: RequestInit, ms = 2200): Promise<Response> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const LS_KEY = "bizradar-projects-v1";
 
 /* ---------------- localStorage (демо-хранилище) ---------------- */
 function lsRead(): ProjectRecord[] {
@@ -78,7 +70,7 @@ function lsWrite(items: ProjectRecord[]) {
 /* ------------------------- публичный API ------------------------- */
 export async function loadProjects(): Promise<{ items: ProjectRecord[]; source: "api" | "local" }> {
   try {
-    const res = await timedFetch("/api/v1/projects");
+    const res = await apiFetch("/api/v1/projects");
     if (!res.ok) throw new Error(String(res.status));
     const j = (await res.json()) as { items: ProjectRecord[] };
     return { items: j.items ?? [], source: "api" };
@@ -90,7 +82,7 @@ export async function loadProjects(): Promise<{ items: ProjectRecord[]; source: 
 
 export async function saveProject(p: ProjectCreatePayload): Promise<{ id: number | string; source: "api" | "local" }> {
   try {
-    const res = await timedFetch("/api/v1/projects", {
+    const res = await apiFetch("/api/v1/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),
@@ -120,7 +112,7 @@ export async function deleteProject(id: number | string): Promise<void> {
   // серверная запись
   if (typeof id === "number" || !String(id).startsWith("ls-")) {
     try {
-      await timedFetch(`/api/v1/projects/${id}`, { method: "DELETE" });
+      await apiFetch(`/api/v1/projects/${id}`, { method: "DELETE" });
     } catch {
       /* нет бэкенда — удалим только локальную копию */
     }

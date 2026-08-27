@@ -8,13 +8,22 @@ BizRadar · FastAPI — модульный монолит (точка входа
   POST /api/report                    — бизнес-отчёт (GigaChat, fallback на заглушку)
   GET  /api/v1/match-locations/cities — города, поддерживаемые Matcher'ом
   POST /api/v1/match-locations        — подбор локаций: сетка ~500 м, скор, топ (кэш 7 дней)
-  GET  /api/v1/projects               — история анализов (обратная хронология)
-  POST /api/v1/projects               — сохранить анализ (снимок метрик + отчёт)
-  GET  /api/v1/projects/{id}          — сохранённый анализ целиком
-  DELETE /api/v1/projects/{id}        — удалить запись из истории
+
+  Аутентификация (JWT, см. services/auth.py):
+  POST /api/auth/register             — регистрация (bcrypt, валидация)
+  POST /api/auth/login                — вход → access_token (HS256)
+  GET  /api/auth/me                   — текущий профиль (приватный)
+  POST /api/auth/change-password      — смена пароля (приватный)
+  POST /api/auth/logout               — выход, отзыв токена (приватный)
+
+  «Мои анализы» — привязаны к пользователю (projects.user_id):
+  GET  /api/v1/projects               — ТОЛЬКО анализы текущего пользователя
+  POST /api/v1/projects               — сохранить анализ (приватный, user_id=текущий)
+  GET  /api/v1/projects/{id}          — сохранённый анализ (только владелец)
+  DELETE /api/v1/projects/{id}        — удалить (только владелец)
 
 Бизнес-логика (скоринг, генерация отчётов) живёт в services/ — здесь только
-клей: маршруты, Pydantic-контракты и бутстрап SQLite из DATABASE_PATH.
+клей: маршруты, Pydantic-контракты и зависимости доступа.
 """
 
 from __future__ import annotations
@@ -397,31 +406,43 @@ def _project_dict(p: Project) -> dict:
 
 
 @app.get("/api/v1/projects")
-def list_projects() -> dict:
-    """Сохранённые анализы в обратном хронологическом порядке (со снимком метрик)."""
+def list_projects(user: User = Depends(get_current_user)) -> dict:
+    """«Мои анализы»: ТОЛЬКО проекты текущего пользователя, в обратном
+    хронологическом порядке. Чужие записи не отдаются никогда (фильтр по user_id)."""
     with SessionLocal() as session:
-        rows = session.query(Project).order_by(Project.id.desc()).limit(200).all()
+        rows = (
+            session.query(Project)
+            .filter(Project.user_id == user.id)
+            .order_by(Project.id.desc())
+            .limit(200)
+            .all()
+        )
         items = [_project_dict(r) for r in rows]
-    return {"items": items, "total": len(items)}
+    return {"items": items, "total": len(items), "owner": {"id": user.id, "email": user.email}}
 
 
 @app.get("/api/v1/projects/{project_id}")
-def get_project(project_id: int) -> dict:
+def get_project(project_id: int, user: User = Depends(get_current_user)) -> dict:
     with SessionLocal() as session:
         p = session.query(Project).filter(Project.id == project_id).first()
-        if p is None:
+        # Не раскрываем существование чужих записей: для не-владельца — 404.
+        if p is None or p.user_id != user.id:
             raise HTTPException(status_code=404, detail=f"анализ №{project_id} не найден")
         return _project_dict(p)
 
 
 @app.post("/api/v1/projects", status_code=201)
-def create_project(req: ProjectCreateRequest) -> dict:
-    """Сохранить анализ: город, ниша, скор + снимок метрик и отчёт (без повторного парсинга при открытии)."""
+def create_project(req: ProjectCreateRequest, request: Request,
+                   user: User = Depends(get_current_user)) -> dict:
+    """Сохранить анализ в «Мои анализы». Требует входа: проект привязывается к
+    текущему пользователю (user_id). Снимок метрик + отчёт — чтобы открытие не
+    требовало повторного парсинга."""
     title = req.niche_title or (NICHES_BY_ID.get(req.niche_id) or {}).get("title", req.niche_id)
     snapshot = req.snapshot or {}
     has_report = 1 if snapshot.get("report") else 0
     with SessionLocal() as session:
         p = Project(
+            user_id=user.id,
             niche_id=req.niche_id,
             niche_title=title,
             city=req.city,
@@ -436,14 +457,35 @@ def create_project(req: ProjectCreateRequest) -> dict:
         session.refresh(p)
         project_id = p.id
         created_at = p.created_at.isoformat() if p.created_at else None
+    ip, ua = _request_meta(request)
+    log_action(
+        "save_project",
+        user_id=user.id,
+        entity_type="project",
+        entity_id=str(project_id),
+        ip=ip,
+        user_agent=ua,
+        details={"niche_id": req.niche_id, "city": req.city, "score": req.score},
+    )
     return {"id": project_id, "created_at": created_at, "has_report": bool(has_report)}
 
 
 @app.delete("/api/v1/projects/{project_id}")
-def delete_project(project_id: int) -> dict:
+def delete_project(project_id: int, request: Request,
+                   user: User = Depends(get_current_user)) -> dict:
     with SessionLocal() as session:
-        deleted = session.query(Project).filter(Project.id == project_id).delete()
-        session.commit()
-        if deleted == 0:
+        p = session.query(Project).filter(Project.id == project_id).first()
+        if p is None or p.user_id != user.id:
             raise HTTPException(status_code=404, detail=f"анализ №{project_id} не найден")
+        session.delete(p)
+        session.commit()
+    ip, ua = _request_meta(request)
+    log_action(
+        "delete_project",
+        user_id=user.id,
+        entity_type="project",
+        entity_id=str(project_id),
+        ip=ip,
+        user_agent=ua,
+    )
     return {"deleted": project_id}

@@ -168,3 +168,45 @@ export const ICompass = make(
 export const IFlame = make(
   <path d="M12 3s1 2.5 1 4.5c2 1 4 3.4 4 6.5a5.5 5.5 0 0 1-11 0c0-2.5 1.4-4.6 3-6 .4 1.2 1 2 2 2.5C10.5 8 11 5 12 3Z" />
 );
+export const IUser = make(
+  <>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4.5 20.5c1-4 4-6 7.5-6s6.5 2 7.5 6" />
+  </>
+);
+export const ILogout = make(
+  <>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="m16 17 5-5-5-5M21 12H9" />
+  </>
+);
+export const ILock = make(
+  <>
+    <rect x="4" y="11" width="16" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4M12 15v2" />
+  </>
+);
+export const IMail = make(
+  <>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3 7 9 6 9-6" />
+  </>
+);
+export const IEye = make(
+  <>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </>
+);
+export const IEyeOff = make(
+  <>
+    <path d="M9.9 4.4A10.4 10.4 0 0 1 12 4.2c6.5 0 10 7.8 10 7.8a17.6 17.6 0 0 1-2.2 3.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7.8 10 7.8a10 10 0 0 0 5.4-1.6" />
+    <path d="M3 3l18 18" />
+  </>
+);
+export const IKey = make(
+  <>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="m11 12 9-9M17.5 5.5l2.5 2.5M14.5 8.5 17 11" />
+  </>
+);

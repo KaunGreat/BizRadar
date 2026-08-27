@@ -15,7 +15,14 @@ import { CityMap } from "./components/CityMap";
 import { Matcher } from "./components/Matcher";
 import { NichePanel } from "./components/NichePanel";
 import { Finance, type Prefill } from "./components/Finance";
-import { History } from "./components/History";
+import { Account } from "./components/Account";
+import { AuthForms } from "./components/AuthForms";
+import {
+  UNAUTHORIZED_EVENT,
+  getStoredSession,
+  refreshMe,
+  type AuthSession,
+} from "./auth";
 import {
   ICheck,
   IChevD,
@@ -28,10 +35,11 @@ import {
   ITarget,
   ITrendDown,
   ITrendUp,
+  IUser,
   IUsers,
 } from "./components/icons";
 
-type View = "analysis" | "matcher" | "history" | "map" | "finance";
+type View = "analysis" | "matcher" | "account" | "map" | "finance";
 
 /* Продуктовая навигация — три раздела, простыми словами.
    «Карта конкурентов» и «Финансовая модель» остались внутри сценария
@@ -39,13 +47,13 @@ type View = "analysis" | "matcher" | "history" | "map" | "finance";
 const NAV: { key: View; label: string; icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
   { key: "analysis", label: "Анализ ниши", icon: (p) => <IRadar {...p} /> },
   { key: "matcher", label: "Подбор локации", icon: (p) => <ITarget {...p} /> },
-  { key: "history", label: "История анализов", icon: (p) => <IClock {...p} /> },
+  { key: "account", label: "Личный кабинет", icon: (p) => <IUser {...p} /> },
 ];
 
 const VIEW_META: Record<View, { title: string; sub: string }> = {
   analysis: { title: "Анализ ниши", sub: "Скоринг выживаемости: спрос, конкуренты, маржа и порог входа по городу" },
   matcher: { title: "Подбор локации", sub: "Где именно открыться: сетка города ~500 м, спрос против конкуренции" },
-  history: { title: "История анализов", sub: "Сохранённые проекты: скор, метрики и отчёт открываются без повторного сканирования" },
+  account: { title: "Личный кабинет", sub: "Профиль и «Мои анализы»: история сохраняется за вами и открывается без повторного сканирования" },
   map: { title: "Карта конкурентов", sub: "Точки конкурентов вокруг выбранной локации" },
   finance: { title: "Финансовая модель", sub: "Юнит-экономика точки и срок возврата вложений" },
 };
@@ -155,6 +163,7 @@ export default function App() {
   const [snapshotAt, setSnapshotAt] = useState(() => Date.now() - 2.3 * 86_400_000);
   const [refreshing, setRefreshing] = useState(false);
   const [toasts, setToasts] = useState<{ id: number; msg: string }[]>([]);
+  const [session, setSession] = useState<AuthSession | null>(() => getStoredSession());
 
   useEffect(() => {
     if (!boot) return;
@@ -165,6 +174,26 @@ export default function App() {
     const t = window.setTimeout(() => setBoot(false), 520);
     return () => window.clearTimeout(t);
   }, [boot, bootStep]);
+
+  /* 401 от защищённых эндпоинтов: сессия уже очищена в auth.ts — сбрасываем UI
+     и возвращаем пользователя ко входу. */
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setSession(null);
+      setView("account"); // показать форму входа
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
+  /* При старте обновляем профиль по сохранённому токену (best effort). */
+  useEffect(() => {
+    if (!session || session.demo) return;
+    refreshMe().then((u) => {
+      if (u) setSession((s) => (s ? { ...s, user: u } : s));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const city = CITIES[cityIdx];
 
@@ -224,6 +253,21 @@ export default function App() {
     setSort("score");
   };
 
+  /* ------------------------- аутентификация ------------------------- */
+  const handleAuthed = (s: AuthSession) => {
+    setSession(s);
+    pushToast(`Добро пожаловать, ${s.user.name || s.user.email}!`);
+  };
+
+  const handleLoggedOut = () => {
+    setSession(null);
+  };
+
+  const openNicheFromHistory = (nicheId: string) => {
+    setSelectedId(nicheId);
+    setView("analysis");
+  };
+
   return (
     <div className="min-h-screen font-body text-ink">
       {boot && <BootScreen step={bootStep} />}
@@ -257,15 +301,35 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="hidden border-t border-line px-4 py-4 text-[11px] leading-relaxed text-dim lg:block">
-          <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-sig animate-pulse" />
-            <span className="text-mut">Движок анализа · онлайн</span>
-          </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-cy" />
-            <span>ИИ-отчёты · доступны</span>
-          </div>
+        <div className="border-t border-line px-2 py-3 lg:px-3">
+          {session ? (
+            <button
+              onClick={() => setView("account")}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition ${
+                view === "account" ? "bg-bg2" : "hover:bg-bg2/60"
+              }`}
+            >
+              <span
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border font-display text-[11px] font-bold"
+                style={{ borderColor: "#3ce6a4", background: "rgba(60,230,164,0.12)", color: "#3ce6a4" }}
+              >
+                {(session.user.name || session.user.email).trim().slice(0, 2).toUpperCase()}
+              </span>
+              <span className="hidden min-w-0 flex-1 lg:block">
+                <span className="block truncate text-[12px] font-semibold text-ink">{session.user.name || "Профиль"}</span>
+                <span className="block truncate text-[10px] text-dim">{session.user.email}</span>
+              </span>
+              <span className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-sig lg:block" style={{ boxShadow: "0 0 6px #3ce6a4" }} />
+            </button>
+          ) : (
+            <button
+              onClick={() => setView("account")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-line px-2 py-2.5 text-[12px] font-semibold text-mut transition hover:border-cy/50 hover:text-cy lg:justify-start lg:px-3"
+            >
+              <IUser size={16} className="shrink-0" />
+              <span className="hidden lg:inline">Войти в кабинет</span>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -490,17 +554,29 @@ export default function App() {
             </div>
           )}
 
-          {/* ================= HISTORY ================= */}
-          {view === "history" && (
-            <div key="history" className="anim-rise">
-              <History
-                onToast={pushToast}
-                onOpenNiche={(nicheId) => {
-                  setSelectedId(nicheId);
-                  setView("analysis");
-                }}
-                onGoRadar={() => setView("analysis")}
-              />
+          {/* ================= ACCOUNT ================= */}
+          {view === "account" && (
+            <div key="account" className="anim-rise">
+              {session ? (
+                <Account
+                  session={session}
+                  onLoggedOut={handleLoggedOut}
+                  onToast={pushToast}
+                  onOpenNiche={openNicheFromHistory}
+                  onGoRadar={() => setView("analysis")}
+                />
+              ) : (
+                <div className="mx-auto max-w-md anim-fade">
+                  <div className="mb-6 text-center">
+                    <h2 className="font-display text-xl font-bold">Личный кабинет</h2>
+                    <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-mut">
+                      Войдите, чтобы сохранять анализы в «Мои анализы» и открывать их в один клик —
+                      без повторного сканирования рынка.
+                    </p>
+                  </div>
+                  <AuthForms onAuthed={handleAuthed} />
+                </div>
+              )}
             </div>
           )}
 
@@ -520,7 +596,13 @@ export default function App() {
           onFinance={() => openFinance(selected)}
           onMap={() => openMap(selected.id)}
           onToast={pushToast}
-          onOpenHistory={() => setView("history")}
+          onOpenHistory={() => setView("account")}
+          isAuthed={!!session}
+          onGoAccount={() => {
+            setSelectedId(null);
+            setView("account");
+            pushToast("Войдите, чтобы сохранить анализ в «Мои анализы»");
+          }}
         />
       )}
 

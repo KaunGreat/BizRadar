@@ -12,7 +12,7 @@ import {
 import { useTypewriter } from "../hooks";
 import { saveProject } from "../projects";
 import { AreaChart, PentagonRadar, ScoreRing } from "./charts";
-import { IArrowR, IBolt, IClock, ICpu, IMap, IRefresh, IStar, ITrendDown, ITrendUp, IX } from "./icons";
+import { IArrowR, IBolt, IClock, ICpu, IMap, IRefresh, IStar, ITrendDown, ITrendUp, IUser, IX } from "./icons";
 
 function InsightText({ text }: { text: string }) {
   const { out, done } = useTypewriter(text, 10);
@@ -32,6 +32,8 @@ export function NichePanel({
   onMap,
   onToast,
   onOpenHistory,
+  isAuthed,
+  onGoAccount,
 }: {
   niche: Niche;
   city: City;
@@ -40,15 +42,22 @@ export function NichePanel({
   onMap: () => void;
   onToast: (msg: string) => void;
   onOpenHistory: () => void;
+  isAuthed: boolean;
+  onGoAccount: () => void;
 }) {
   const [nonce, setNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   /* Сохранить анализ: пробуем получить ИИ-отчёт, кладём снимок в историю.
-     Без бэкенда отчёт деградирует до эвристики — сохранение работает всегда. */
+     Без бэкенда отчёт деградирует до эвристики — сохранение работает всегда.
+     Гостю (без входа) сохранение недоступно — предлагаем войти. */
   const saveAnalysis = async () => {
     if (saving || saved) return;
+    if (!isAuthed) {
+      onGoAccount();
+      return;
+    }
     setSaving(true);
     let report = niche.insight;
     let reportSource: "gigachat" | "stub" = "stub";
@@ -291,6 +300,8 @@ export function NichePanel({
                 className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg border py-2.5 text-[12.5px] font-bold transition active:scale-[0.98] ${
                   saved
                     ? "cursor-default border-sig/40 bg-sig/10 text-sig"
+                    : !isAuthed
+                    ? "border-amb/45 bg-amb/[0.08] text-amb hover:bg-amb/15"
                     : "border-line bg-bg2 text-ink hover:border-sig/50 hover:text-sig disabled:opacity-60"
                 }`}
               >
@@ -301,6 +312,10 @@ export function NichePanel({
                 ) : saved ? (
                   <>
                     <IClock size={15} /> В истории
+                  </>
+                ) : !isAuthed ? (
+                  <>
+                    <IUser size={15} /> Войти, чтобы сохранить
                   </>
                 ) : (
                   <>
