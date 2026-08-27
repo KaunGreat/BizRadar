@@ -1,4 +1,6 @@
-import { ENDPOINTS, FLYWHEEL, REGIONS_DEMO, ROADMAP_DONE, ROADMAP_NEXT, STACK } from "../data";
+import { useState } from "react";
+import { ENDPOINTS, FLYWHEEL, REGIONS_DEMO, ROADMAP_DONE, ROADMAP_NEXT, STACK, type RegionDemo } from "../data";
+import { useCountUp } from "../hooks";
 import { ICheck, IClock, ICopy, ILayers, IWallet, IUsers, IBuilding, IBolt } from "./icons";
 
 function Flywheel() {
@@ -44,6 +46,133 @@ function Flywheel() {
         );
       })}
     </svg>
+  );
+}
+
+/* ---------- демография: схема данных + живое сравнение БД и fallback ---------- */
+function FlowLink() {
+  return (
+    <svg viewBox="0 0 34 12" className="h-3 w-7 shrink-0 text-cy/50" aria-hidden>
+      <line x1="0" y1="6" x2="25" y2="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="5 5" className="dash-flow" />
+      <path d="M23 2 L31 6 L23 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RegionRow({ r, mode, delay }: { r: RegionDemo; mode: "db" | "fb"; delay: number }) {
+  const v = r[mode];
+  const fromDb = mode === "db";
+  const popAnim = useCountUp(v.population, 750);
+  const incAnim = useCountUp(v.avg_income, 750);
+  const maxPop = Math.max(...REGIONS_DEMO.map((x) => x[mode].population));
+  const popW = Math.sqrt(v.population / maxPop) * 100;
+  const incW = Math.max(8, ((v.avg_income - 40_000) / (105_000 - 40_000)) * 100);
+  const accent = fromDb ? "#3ce6a4" : "#ffc24b";
+
+  return (
+    <div className="anim-rise rounded-lg border border-linesoft bg-bg1/60 px-4 py-3.5 transition hover:-translate-y-0.5 hover:border-line hover:bg-bg2/70" style={{ animationDelay: `${delay}ms` }}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-display text-[13.5px] font-bold">{r.region}</span>
+        <span
+          className="inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-colors"
+          style={{ borderColor: `${accent}50`, background: `${accent}12`, color: accent }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: accent, boxShadow: `0 0 6px ${accent}` }} />
+          {fromDb ? "БД · Росстат/ЕМИСС" : "fallback · справочник"}
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <div className="grid grid-cols-[86px_1fr_auto] items-center gap-2.5">
+          <span className="text-[10.5px] uppercase tracking-wider text-dim">население</span>
+          <div className="h-1.5 overflow-hidden rounded-full bg-bg3">
+            <div className="h-full rounded-full bg-cy transition-all duration-700" style={{ width: `${popW}%`, boxShadow: "0 0 8px rgba(76,201,240,.4)" }} />
+          </div>
+          <span className="w-20 text-right text-[12px] font-semibold tabular text-ink">{popAnim.toLocaleString("ru-RU")}</span>
+        </div>
+        <div className="grid grid-cols-[86px_1fr_auto] items-center gap-2.5">
+          <span className="text-[10.5px] uppercase tracking-wider text-dim">доход / чел</span>
+          <div className="h-1.5 overflow-hidden rounded-full bg-bg3">
+            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${incW}%`, background: accent, boxShadow: `0 0 8px ${accent}55` }} />
+          </div>
+          <span className="w-20 text-right text-[12px] font-semibold tabular" style={{ color: accent }}>
+            {incAnim.toLocaleString("ru-RU")} ₽
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-2.5 border-t border-linesoft pt-2 text-[10px] leading-relaxed text-dim">
+        <span className="font-mono text-mut">as_of {v.as_of}</span> · {v.source}
+        {fromDb && r.proxyNote && <span className="block text-amb/90">{r.proxyNote} — Росстат не публикует доходы по городам</span>}
+        {!fromDb && <span className="block">значения из статичного словаря: скоринг продолжает работать</span>}
+      </div>
+    </div>
+  );
+}
+
+function DemographicsPanel() {
+  const [mode, setMode] = useState<"db" | "fb">("db");
+  const fromDb = mode === "db";
+
+  return (
+    <div className="panel rounded-xl p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-display text-sm font-bold">Демография · GET /api/regions</h3>
+          <p className="mt-0.5 text-[11.5px] text-dim">опорные цифры скоринга: из БД после загрузки датасетов — без единого запроса к Росстату в рантайме</p>
+        </div>
+        <div className="flex overflow-hidden rounded-lg border border-line">
+          {(
+            [
+              ["db", "БД загружена"],
+              ["fb", "пустая БД · fallback"],
+            ] as const
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-3 py-1.5 text-[11.5px] font-semibold transition ${
+                mode === m ? (m === "db" ? "bg-sig/15 text-sig" : "bg-amb/15 text-amb") : "text-mut hover:text-ink"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* схема потока данных */}
+      <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-lg border border-linesoft bg-bg0/50 px-3.5 py-3">
+        <span className="shrink-0 rounded-md border border-vio/45 bg-vio/10 px-2.5 py-1.5 font-mono text-[10.5px] text-vio">cron · 1-е число месяца</span>
+        <FlowLink />
+        <span className="shrink-0 rounded-md border border-line bg-bg2 px-2.5 py-1.5 font-mono text-[10.5px] text-ink/90">python -m parsers.rosstat_loader</span>
+        <FlowLink />
+        <span className="shrink-0 rounded-md border border-cy/45 bg-cy/10 px-2.5 py-1.5 font-mono text-[10.5px] text-cy">rosstat opendata · ЕМИСС 57039</span>
+        <FlowLink />
+        <span className={`shrink-0 rounded-md border px-2.5 py-1.5 font-mono text-[10.5px] transition ${fromDb ? "border-sig/50 bg-sig/10 text-sig" : "border-line bg-bg2 text-mut"}`}>
+          SQLite · region_stats
+        </span>
+        <FlowLink />
+        <span className="shrink-0 rounded-md border border-line bg-bg2 px-2.5 py-1.5 font-mono text-[10.5px] text-ink/90">скоринг + бейдж source/as_of</span>
+      </div>
+
+      {/* регионы */}
+      <div key={mode} className="mt-4 grid gap-3 sm:grid-cols-2">
+        {REGIONS_DEMO.map((r, i) => (
+          <RegionRow key={r.key} r={r} mode={mode} delay={i * 60} />
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-dim">
+        <span>
+          загрузка: <code className="rounded bg-bg2 px-1.5 py-0.5 font-mono text-[10.5px] text-mut">python -m parsers.rosstat_loader</code>
+        </span>
+        <span>
+          проверка источника: <code className="rounded bg-bg2 px-1.5 py-0.5 font-mono text-[10.5px] text-mut">curl /api/regions?city=tomsk</code> → поле{" "}
+          <code className="font-mono text-[10.5px]" style={{ color: fromDb ? "#3ce6a4" : "#ffc24b" }}>source: {fromDb ? "rosstat-opendata…" : "static-fallback"}</code>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -127,49 +256,7 @@ export function DataView({ onToast }: { onToast: (msg: string) => void }) {
       </div>
 
       {/* демография: Росстат из БД */}
-      <div className="panel rounded-xl p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-display text-sm font-bold">Демография · GET /api/regions</h3>
-          <span className="rounded border border-line bg-bg2 px-2 py-0.5 font-mono text-[10.5px] text-cy">
-            пакетный загрузчик · раз в месяц · рантайм без сети
-          </span>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {REGIONS_DEMO.map((r, i) => {
-            const fromDb = r.source !== "static-fallback";
-            return (
-              <div key={r.region} className="panel-soft rounded-xl p-4 anim-rise" style={{ animationDelay: `${i * 60}ms` }}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-display text-[13px] font-bold">{r.region}</span>
-                  <span
-                    className="rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-                    style={fromDb ? { borderColor: "#3ce6a455", background: "#3ce6a412", color: "#3ce6a4" } : { borderColor: "#ffc24b55", background: "#ffc24b10", color: "#ffc24b" }}
-                  >
-                    {fromDb ? "БД · Росстат" : "fallback"}
-                  </span>
-                </div>
-                <div className="mt-2.5 flex items-baseline justify-between text-[12px]">
-                  <span className="text-mut">население</span>
-                  <span className="font-semibold tabular text-ink">{r.population.toLocaleString("ru-RU")}</span>
-                </div>
-                <div className="mt-1 flex items-baseline justify-between text-[12px]">
-                  <span className="text-mut">доход / чел</span>
-                  <span className="font-semibold tabular text-sig">{r.avg_income.toLocaleString("ru-RU")} ₽</span>
-                </div>
-                <div className="mt-2.5 border-t border-linesoft pt-2 text-[10px] leading-relaxed text-dim">
-                  <span className="font-mono text-mut">as_of {r.as_of}</span> · {r.source}
-                  {r.source.includes("прокси") && <span className="block text-amb/90">доход — уровень субъекта (Росстат не публикует городской)</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-3.5 text-[11.5px] leading-relaxed text-dim">
-          Схема принципиальная: загрузчик <code className="font-mono text-mut">python -m parsers.rosstat_loader</code> скачивает датасеты
-          (opendata 7708234640-population · ЕМИСС 57039) и делает upsert в <code className="font-mono text-mut">region_stats</code>;
-          скоринг читает только БД, а при пустой базе честно падает на статичный справочник — продукт работает в любом случае.
-        </p>
-      </div>
+      <DemographicsPanel />
 
       {/* api + stack */}
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">

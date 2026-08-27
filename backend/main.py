@@ -96,7 +96,21 @@ def get_niche(niche_id: str) -> dict:
     niche = NICHES_BY_ID.get(niche_id)
     if niche is None:
         raise HTTPException(status_code=404, detail=f"ниша «{niche_id}» не найдена")
-    return niche
+    # Демография опорного города (каталог откалиброван на Томск) — из БД,
+    # заполненной пакетным загрузчиком; source + as_of идут в бейдж фронтенда.
+    # При пустой БД get_region_stats сама упадёт на статичный справочник.
+    demo = get_region_stats("tomsk")
+    return {
+        **niche,
+        "demographics": {
+            "region": demo["region"],
+            "population": demo["population"],
+            "avg_income": demo["avg_income"],
+            "as_of": demo["as_of"],
+            "source": demo["source"],
+            "source_note": demo.get("source_note"),
+        },
+    }
 
 
 @app.post("/api/report")

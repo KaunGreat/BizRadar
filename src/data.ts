@@ -368,12 +368,41 @@ export const ENDPOINTS = [
   { method: "GET", path: "/api/regions", desc: "демография из БД (загрузчик Росстат/ЕМИСС): source + as_of, fallback на справочник" },
 ];
 
-/* Демо-срез GET /api/regions (форма ответа один в один) */
-export const REGIONS_DEMO = [
-  { region: "Томск", level: "city", population: 556_400, avg_income: 48_500, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
-  { region: "Новосибирск", level: "city", population: 1_633_900, avg_income: 52_000, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
-  { region: "Москва", level: "city", population: 13_104_200, avg_income: 97_000, as_of: "2025-01-01", source: "rosstat-opendata" },
-  { region: "Казань", level: "city", population: 1_308_700, avg_income: 56_000, as_of: "2024-01-01", source: "static-fallback" },
+/* Демо-срез GET /api/regions (форма ответа один в один).
+   Два состояния: db — после загрузки датасетов, fb — пустая БД (fallback). */
+export interface RegionDemo {
+  key: string;
+  region: string;
+  level: "city" | "subject";
+  proxyNote?: string;
+  db: { population: number; avg_income: number; as_of: string; source: string };
+  fb: { population: number; avg_income: number; as_of: string; source: string };
+}
+
+export const REGIONS_DEMO: RegionDemo[] = [
+  {
+    key: "tomsk", region: "Томск", level: "city",
+    proxyNote: "доход — уровень субъекта (Томская область)",
+    db: { population: 557_000, avg_income: 50_300, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
+    fb: { population: 556_400, avg_income: 48_500, as_of: "2024-01-01", source: "static-fallback" },
+  },
+  {
+    key: "novosibirsk", region: "Новосибирск", level: "city",
+    proxyNote: "доход — уровень субъекта (Новосибирская область)",
+    db: { population: 1_634_800, avg_income: 54_100, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
+    fb: { population: 1_633_900, avg_income: 52_000, as_of: "2024-01-01", source: "static-fallback" },
+  },
+  {
+    key: "moskva", region: "Москва", level: "city",
+    db: { population: 13_150_000, avg_income: 101_500, as_of: "2025-01-01", source: "rosstat-opendata + emisss-57039" },
+    fb: { population: 13_104_200, avg_income: 97_000, as_of: "2024-01-01", source: "static-fallback" },
+  },
+  {
+    key: "kazan", region: "Казань", level: "city",
+    proxyNote: "доход — уровень субъекта (Республика Татарстан)",
+    db: { population: 1_320_700, avg_income: 61_400, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
+    fb: { population: 1_308_700, avg_income: 56_000, as_of: "2024-01-01", source: "static-fallback" },
+  },
 ];
 
 /* ---------- форматирование ---------- */
