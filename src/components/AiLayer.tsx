@@ -319,47 +319,85 @@ function IniCode({ code }: { code: string }) {
 
 type Provider = "stub" | "gigachat";
 
+/* Симуляция повторяет РЕАЛЬНЫЙ вывод `python scripts/test_gigachat.py`
+   для входных данных скрипта: кофейня «кофе с собой», Томск,
+   competitors_count=42, density=8.1, конкуренция «средняя»,
+   avg_income=48 500, budget=1 500 000.
+   Эвристика v1 для них: оценка 54/100 · первый год 57% · «GO с условиями». */
+const SCRIPT_HDR = [
+  { t: "$ python scripts/test_gigachat.py", c: "text-dim" },
+  { t: "==============================================================", c: "text-dim" },
+];
+const SCRIPT_FTR = [
+  { t: "OK: контракт соблюдён — вернулась непустая строка.", c: "text-sig" },
+  { t: "exit code: 0 · падения нет", c: "text-sig" },
+];
+const STUB_REPORT = [
+  { t: "# Отчёт по нише: Кофейня формата «кофе с собой»", c: "text-ink" },
+  { t: "## Выживаемость", c: "text-ink/85" },
+  { t: "- Оценка: 54/100 · первый год: 57%", c: "text-mut" },
+  { t: "## Ключевые риски / ## Точки роста / ## Рекомендация", c: "text-ink/85" },
+  { t: "Вердикт: GO с условиями", c: "text-amb" },
+];
+
 function useFlowResult(provider: Provider, hasKey: boolean, failApi: boolean) {
   return useMemo(() => {
     if (provider === "stub")
       return {
         source: "stub" as const,
         logs: [
-          { t: "[info] LLM_PROVIDER=stub — использую локальную заглушку", c: "text-mut" },
-          { t: "[ok]   отчёт: эвристика v1 · без сетевых вызовов · 4 мс", c: "text-sig" },
+          ...SCRIPT_HDR,
+          { t: "Провайдер: stub · Ключ: не проверялся · Источник отчёта: stub", c: "text-mut" },
+          { t: "==============================================================", c: "text-dim" },
+          { t: "[info] LLM_PROVIDER=stub — использую локальную заглушку", c: "text-cy" },
+          ...STUB_REPORT,
+          ...SCRIPT_FTR,
         ],
-        note: "Сеть не трогается вообще — режим для локальной разработки и CI.",
+        note: "Сеть не трогается вообще: заглушка возвращается до любых импортов SDK — режим для локальной разработки и CI.",
       };
     if (!hasKey)
       return {
         source: "stub" as const,
         logs: [
-          { t: "[warn] LLM_PROVIDER=gigachat, но GIGACHAT_AUTH_KEY пуст", c: "text-amb" },
-          { t: "[warn] fallback на заглушку — эндпоинт возвращает 200", c: "text-amb" },
-          { t: "[ok]   отчёт: эвристика v1 + примечание пользователю", c: "text-sig" },
+          ...SCRIPT_HDR,
+          { t: "Провайдер: gigachat · Ключ GigaChat: НЕ задан · Источник отчёта: stub", c: "text-amb" },
+          { t: "==============================================================", c: "text-dim" },
+          { t: "[warn] LLM_PROVIDER=gigachat, но GIGACHAT_AUTH_KEY пуст — fallback на заглушку", c: "text-amb" },
+          { t: "> Примечание: Ключ GigaChat не настроен — показан локальный эвристический отчёт.", c: "text-amb/90" },
+          ...STUB_REPORT,
+          ...SCRIPT_FTR,
         ],
-        note: "Конфиг обещал GigaChat, но ключа нет — сервис честно откатывается на заглушку и пишет warn в лог.",
+        note: "Ветка `if not self.auth_key` (строка 131) срабатывает ДО импорта gigachat: пакет не требуется, запрос в сеть не уходит — warn в лог, заглушка с примечанием, exit 0.",
       };
     if (failApi)
       return {
         source: "stub" as const,
         logs: [
-          { t: "[info] POST https://ngw.devices.sberbank.ru:9443/api/v2/chat", c: "text-mut" },
-          { t: "[error] httpx.ConnectTimeout: API недоступен (timeout=30s)", c: "text-cor" },
-          { t: "[warn] except Exception → fallback на заглушку", c: "text-amb" },
-          { t: "[ok]   эндпоинт вернул 200: отчёт-заглушка + примечание", c: "text-sig" },
+          ...SCRIPT_HDR,
+          { t: "Провайдер: gigachat · Ключ GigaChat: задан · Источник отчёта: stub", c: "text-amb" },
+          { t: "==============================================================", c: "text-dim" },
+          { t: "[info] POST https://ngw.devices.sberbank.ru:9443/api/v2/chat · timeout=30s", c: "text-mut" },
+          { t: "[error] GigaChat недоступен (ConnectTimeout) — fallback на заглушку", c: "text-cor" },
+          { t: "> Примечание: GigaChat временно недоступен (ConnectTimeout) — показан эвристический отчёт.", c: "text-amb/90" },
+          ...STUB_REPORT,
+          ...SCRIPT_FTR,
         ],
-        note: "Таймаут, HTTP-ошибка, пустой choices — любой сбой ловится и не роняет эндпоинт.",
+        note: "Таймаут, HTTP-ошибка, пустой choices или content — всё перехватывает except Exception: стектрейс в лог, заглушка с примечанием, exit 0.",
       };
     return {
       source: "gigachat" as const,
       logs: [
-        { t: "[info] POST https://ngw.devices.sberbank.ru:9443/api/v2/chat", c: "text-mut" },
-        { t: "[info] модель GigaChat · scope GIGACHAT_API_CORP · timeout 30s", c: "text-mut" },
-        { t: "[ok]   200 OK · 3.4s · choices[0].message.content = 1 642 симв.", c: "text-sig" },
-        { t: "[ok]   отчёт: Markdown — Выживаемость / Риски / Точки роста / Рекомендация", c: "text-sig" },
+        ...SCRIPT_HDR,
+        { t: "Провайдер: gigachat · Ключ GigaChat: задан · Источник отчёта: gigachat", c: "text-sig" },
+        { t: "==============================================================", c: "text-dim" },
+        { t: "[info] POST https://ngw.devices.sberbank.ru:9443/api/v2/chat · модель GigaChat", c: "text-mut" },
+        { t: "[ok] 200 OK · 3.4s · choices[0].message.content = 1 642 симв.", c: "text-sig" },
+        { t: "# Отчёт по нише: Кофейня формата «кофе с собой»", c: "text-ink" },
+        { t: "## Выживаемость · Оценка: 63/100 · первый год: 66%", c: "text-mut" },
+        { t: "## Ключевые риски / ## Точки роста / ## Рекомендация · Вердикт: GO с условиями", c: "text-ink/85" },
+        ...SCRIPT_FTR,
       ],
-      note: "Реальный отчёт GigaChat по всем метрикам market_data, структура закреплена системным промптом.",
+      note: "Реальный Markdown-отчёт GigaChat по всем пяти метрикам market_data; структура закреплена системным промптом роли «бизнес-аналитик BizRadar».",
     };
   }, [provider, hasKey, failApi]);
 }
@@ -452,7 +490,7 @@ function FlowDemo({ onToast }: { onToast: (m: string) => void }) {
       {/* терминал */}
       <div className="mt-4 overflow-hidden rounded-lg border border-linesoft bg-bg0/80">
         <div className="flex items-center justify-between border-b border-linesoft px-3 py-1.5">
-          <span className="font-mono text-[10.5px] text-dim">uvicorn · bizradar.ai</span>
+          <span className="font-mono text-[10.5px] text-dim">stdout · симуляция scripts/test_gigachat.py</span>
           <IPlay size={12} className="text-sig" />
         </div>
         <div key={`${provider}-${hasKey}-${failApi}`} className="space-y-1.5 p-3.5 font-mono text-[11.5px] leading-snug">
@@ -552,12 +590,17 @@ const VERIFY_STEPS = [
   {
     t: "Ожидаемый результат (ключ рабочий)",
     d: "Источник отчёта — gigachat, структура Markdown соблюдена, контракт не нарушен:",
-    code: "==============================================================\nПровайдер:        gigachat\nМодель:           GigaChat\nКлюч GigaChat:    задан\nИсточник отчёта:  gigachat\n==============================================================\n\n# Отчёт по нише: Кофейня формата «кофе с собой»\n## Выживаемость\n- Оценка: 71/100\n- Вероятность пережить первый год: 68%\n...\nOK: контракт соблюдён — вернулась непустая строка.",
+    code: "==============================================================\nПровайдер:        gigachat\nМодель:           GigaChat\nКлюч GigaChat:    задан\nИсточник отчёта:  gigachat\n==============================================================\n\n# Отчёт по нише: Кофейня формата «кофе с собой»\n## Выживаемость\n- Оценка: 63/100\n- Вероятность пережить первый год: 66%\n...\nOK: контракт соблюдён — вернулась непустая строка.",
   },
   {
-    t: "Негативные проверки (обязательно)",
-    d: "В обоих случаях скрипт завершается с кодом 0 — fallback не считается ошибкой:",
-    code: "# 1) очистите GIGACHAT_AUTH_KEY= и запустите снова:\n#    -> «Источник отчёта: stub», warn в логе, отчёт всё равно пришёл\n\n# 2) выключите сеть и запустите снова:\n#    -> ошибка логируется, возвращается заглушка, HTTP 200",
+    t: "Проверка без ключа (ваш сценарий)",
+    d: "Закомментируйте ключ в .env и запустите скрипт. Ожидается заглушка с примечанием, exit 0 — без падения. Ветка срабатывает ДО импорта SDK, так что пакет gigachat для этого прогона вообще не обязателен:",
+    code: "# в .env:\n# GIGACHAT_AUTH_KEY=MzMz...   <- закомментировано\nLLM_PROVIDER=gigachat\n\npython scripts/test_gigachat.py\n\n# ожидаемый stdout:\n# Ключ GigaChat:    НЕ задан\n# Источник отчёта:  stub\n# [warn] ... GIGACHAT_AUTH_KEY пуст — fallback на заглушку\n# > Примечание: Ключ GigaChat не настроен — показан локальный эвристический отчёт.\n# ## Выживаемость · Оценка: 54/100 · первый год: 57%\n# Вердикт: GO с условиями\n# OK: контракт соблюдён — вернулась непустая строка.\n# exit code: 0",
+  },
+  {
+    t: "Сбой сети при заданном ключе",
+    d: "Ключ на месте, но API недоступен (таймаут/HTTP-ошибка) — except Exception перехватывает всё:",
+    code: "# выключите сеть и запустите снова:\n# [error] GigaChat недоступен (ConnectTimeout) — fallback на заглушку\n# -> заглушка с примечанием, HTTP 200, exit 0",
   },
 ];
 
