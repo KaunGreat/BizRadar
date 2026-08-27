@@ -89,6 +89,25 @@ def ensure_database(db_path: str = DATABASE_PATH) -> None:
             "CREATE INDEX IF NOT EXISTS idx_location_snapshots_city_niche "
             "ON location_snapshots (city, niche_id)"
         )
+        # История анализов: сохранённые проекты пользователя (город, ниша, скор,
+        # снимок метрик + отчёт). Открываются без повторного парсинга.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                niche_id    TEXT    NOT NULL,
+                niche_title TEXT    NOT NULL,
+                city        TEXT    NOT NULL DEFAULT '',
+                city_name   TEXT    NOT NULL DEFAULT '',
+                score       REAL    NOT NULL DEFAULT 0,
+                survival    INTEGER NOT NULL DEFAULT 0,
+                has_report  INTEGER NOT NULL DEFAULT 0,
+                snapshot    TEXT    NOT NULL DEFAULT '{}',  -- метрики + отчёт (JSON)
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_created ON projects (created_at DESC)")
         conn.commit()
         logger.info("БД инициализирована: %s", db_path)
     finally:

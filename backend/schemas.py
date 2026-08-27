@@ -7,7 +7,7 @@ main.py остаётся тонким клеем: маршруты приним�
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -71,3 +71,16 @@ class CityInfo(BaseModel):
     key: str
     name: str
     cell_meters: int
+
+
+# ------------------------------------------------------------- История анализов
+class ProjectCreateRequest(BaseModel):
+    """POST /api/v1/projects — сохранить анализ в историю."""
+
+    niche_id: str
+    niche_title: str = ""
+    city: str = ""
+    city_name: str = ""
+    score: float = 0
+    survival: int = 0
+    snapshot: Dict[str, Any] = Field(default_factory=dict, description="метрики + отчёт; открываются без повторного парсинга")

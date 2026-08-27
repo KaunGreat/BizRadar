@@ -15,55 +15,46 @@ import { CityMap } from "./components/CityMap";
 import { Matcher } from "./components/Matcher";
 import { NichePanel } from "./components/NichePanel";
 import { Finance, type Prefill } from "./components/Finance";
-import { Marketplace } from "./components/Marketplace";
-import { DataView } from "./components/DataView";
-import { AiLayer } from "./components/AiLayer";
+import { History } from "./components/History";
 import {
-  ICalc,
   ICheck,
-  IChip,
   IChevD,
+  IClock,
   ICompass,
-  ICpu,
   IFlame,
-  IMap,
   IRadar,
   IRefresh,
   ISearch,
-  IStore,
   ITarget,
   ITrendDown,
   ITrendUp,
   IUsers,
 } from "./components/icons";
 
-type View = "radar" | "map" | "matcher" | "finance" | "market" | "ai" | "data";
+type View = "analysis" | "matcher" | "history" | "map" | "finance";
 
+/* Продуктовая навигация — три раздела, простыми словами.
+   «Карта конкурентов» и «Финансовая модель» остались внутри сценария
+   анализа: открываются из карточки ниши. */
 const NAV: { key: View; label: string; icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
-  { key: "radar", label: "Нишевый радар", icon: (p) => <IRadar {...p} /> },
-  { key: "map", label: "Карта конкурентов", icon: (p) => <IMap {...p} /> },
+  { key: "analysis", label: "Анализ ниши", icon: (p) => <IRadar {...p} /> },
   { key: "matcher", label: "Подбор локации", icon: (p) => <ITarget {...p} /> },
-  { key: "finance", label: "Финансы", icon: (p) => <ICalc {...p} /> },
-  { key: "market", label: "Маркетплейс", icon: (p) => <IStore {...p} /> },
-  { key: "ai", label: "ИИ-слой · GigaChat", icon: (p) => <ICpu {...p} /> },
-  { key: "data", label: "Платформа", icon: (p) => <IChip {...p} /> },
+  { key: "history", label: "История анализов", icon: (p) => <IClock {...p} /> },
 ];
 
 const VIEW_META: Record<View, { title: string; sub: string }> = {
-  radar: { title: "Нишевый радар", sub: "Scout · скоринг выживаемости v1 по данным OSM и региональной статистике" },
-  map: { title: "Карта конкурентов", sub: "Слой точек из Overpass API · кэш MarketSnapshot, TTL 7 дней" },
-  matcher: { title: "Подбор локации", sub: "Matcher · сетка ~500 м · opportunity = спрос / (1 + конкуренты) · кэш 7 дней" },
-  finance: { title: "Финансовая модель", sub: "Finance · юнит-экономика точки и срок возврата вложений" },
-  market: { title: "Маркетплейс партнёров", sub: "Marketplace · CPA-лиды банкам, SaaS франшизам, скидки подрядчиков" },
-  ai: { title: "ИИ-слой · GigaChat", sub: "RussianLLMService: реальный вызов с fallback на заглушку · services/ai_service.py" },
-  data: { title: "Платформа BizRadar", sub: "Модули, маховик монетизации, roadmap и API бэкенда" },
+  analysis: { title: "Анализ ниши", sub: "Скоринг выживаемости: спрос, конкуренты, маржа и порог входа по городу" },
+  matcher: { title: "Подбор локации", sub: "Где именно открыться: сетка города ~500 м, спрос против конкуренции" },
+  history: { title: "История анализов", sub: "Сохранённые проекты: скор, метрики и отчёт открываются без повторного сканирования" },
+  map: { title: "Карта конкурентов", sub: "Точки конкурентов вокруг выбранной локации" },
+  finance: { title: "Финансовая модель", sub: "Юнит-экономика точки и срок возврата вложений" },
 };
 
 const BOOT_LINES = [
-  "Подключение к Overpass API (OpenStreetMap)",
-  "MarketSnapshot · кэш снимка рынка (TTL 7 дней)",
-  "Эвристика выживаемости v1 · пересчёт 16 ниш",
-  "RussianLLM: GigaChat подключён · без ключа → fallback на заглушку",
+  "Загружаем рыночные данные · OpenStreetMap",
+  "Снимок рынка · кэш актуален",
+  "Скоринг 16 ниш · готово",
+  "Движок отчётов · готов к работе",
 ];
 
 function LogoMark({ size = 34 }: { size?: number }) {
@@ -152,7 +143,7 @@ function BootScreen({ step }: { step: number }) {
 export default function App() {
   const [boot, setBoot] = useState(true);
   const [bootStep, setBootStep] = useState(0);
-  const [view, setView] = useState<View>("radar");
+  const [view, setView] = useState<View>("analysis");
   const [cityIdx, setCityIdx] = useState(0);
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<"Все" | Category>("Все");
@@ -269,11 +260,11 @@ export default function App() {
         <div className="hidden border-t border-line px-4 py-4 text-[11px] leading-relaxed text-dim lg:block">
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-sig animate-pulse" />
-            <span className="text-mut">FastAPI · онлайн</span>
+            <span className="text-mut">Движок анализа · онлайн</span>
           </div>
           <div className="mt-1.5 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-sig" />
-            <span>LLM: GigaChat + fallback на заглушку</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-cy" />
+            <span>ИИ-отчёты · доступны</span>
           </div>
         </div>
       </aside>
@@ -288,7 +279,7 @@ export default function App() {
               <p className="truncate text-[11.5px] text-dim">{VIEW_META[view].sub}</p>
             </div>
 
-            {view === "radar" && (
+            {view === "analysis" && (
               <div className="relative order-3 w-full sm:order-none sm:w-60">
                 <ISearch size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
                 <input
@@ -343,9 +334,9 @@ export default function App() {
         </header>
 
         <main className="mx-auto max-w-[1440px] px-5 py-6 lg:px-8">
-          {/* ================= RADAR ================= */}
-          {view === "radar" && (
-            <div key="radar" className="space-y-5">
+          {/* ================= ANALYSIS ================= */}
+          {view === "analysis" && (
+            <div key="analysis" className="space-y-5">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 <StatTile delay="0s" icon={<IRadar size={17} className="text-sig" />} label="Целей на радаре" target={filtered.length} format={(v) => fmtNum(v)} sub="ниш в скоринге v1" />
                 <StatTile delay="0.06s" icon={<ITarget size={17} className="text-cy" />} label="Средний балл" target={avgScore} format={(v) => `${Math.round(v)}`} sub="шкала радара 0–100" color={scoreColor(avgScore)} />
@@ -499,30 +490,23 @@ export default function App() {
             </div>
           )}
 
-          {/* ================= MARKET ================= */}
-          {view === "market" && (
-            <div key="market" className="anim-rise">
-              <Marketplace onToast={pushToast} />
-            </div>
-          )}
-
-          {/* ================= AI LAYER ================= */}
-          {view === "ai" && (
-            <div key="ai" className="anim-rise">
-              <AiLayer onToast={pushToast} />
-            </div>
-          )}
-
-          {/* ================= DATA ================= */}
-          {view === "data" && (
-            <div key="data" className="anim-rise">
-              <DataView onToast={pushToast} />
+          {/* ================= HISTORY ================= */}
+          {view === "history" && (
+            <div key="history" className="anim-rise">
+              <History
+                onToast={pushToast}
+                onOpenNiche={(nicheId) => {
+                  setSelectedId(nicheId);
+                  setView("analysis");
+                }}
+                onGoRadar={() => setView("analysis")}
+              />
             </div>
           )}
 
           <footer className="mt-10 flex flex-wrap items-center justify-between gap-2 border-t border-linesoft pt-5 pb-2 text-[11px] text-dim">
-            <span>BizRadar · учебный прототип фронтенда (Next.js + Tailwind в проде) · данные демонстрационные</span>
-            <span className="font-mono">backend: FastAPI · snapshot TTL 7d · LLM: GigaChat (fallback stub)</span>
+            <span>BizRadar · радар бизнес-ниш для начинающих предпринимателей · данные демонстрационные</span>
+            <span className="font-mono">анализ · локации · история</span>
           </footer>
         </main>
       </div>
@@ -535,6 +519,8 @@ export default function App() {
           onClose={() => setSelectedId(null)}
           onFinance={() => openFinance(selected)}
           onMap={() => openMap(selected.id)}
+          onToast={pushToast}
+          onOpenHistory={() => setView("history")}
         />
       )}
 

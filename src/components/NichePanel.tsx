@@ -10,8 +10,9 @@ import {
   type Niche,
 } from "../data";
 import { useTypewriter } from "../hooks";
+import { saveProject } from "../projects";
 import { AreaChart, PentagonRadar, ScoreRing } from "./charts";
-import { IArrowR, IBolt, ICpu, IMap, IStar, ITrendDown, ITrendUp, IX } from "./icons";
+import { IArrowR, IBolt, IClock, ICpu, IMap, IRefresh, IStar, ITrendDown, ITrendUp, IX } from "./icons";
 
 function InsightText({ text }: { text: string }) {
   const { out, done } = useTypewriter(text, 10);
@@ -29,14 +30,87 @@ export function NichePanel({
   onClose,
   onFinance,
   onMap,
+  onToast,
+  onOpenHistory,
 }: {
   niche: Niche;
   city: City;
   onClose: () => void;
   onFinance: () => void;
   onMap: () => void;
+  onToast: (msg: string) => void;
+  onOpenHistory: () => void;
 }) {
   const [nonce, setNonce] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  /* Сохранить анализ: пробуем получить ИИ-отчёт, кладём снимок в историю.
+     Без бэкенда отчёт деградирует до эвристики — сохранение работает всегда. */
+  const saveAnalysis = async () => {
+    if (saving || saved) return;
+    setSaving(true);
+    let report = niche.insight;
+    let reportSource: "gigachat" | "stub" = "stub";
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2500);
+      const incomeByCity: Record<string, number> = { "Томск": 48_500, "Новосибирск": 52_000, "Москва": 97_000 };
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          niche: niche.title,
+          region: city.name,
+          market_data: {
+            competitors_count: niche.competitors.length,
+            density_per_100k: Math.round((niche.competitors.length / 5.56) * 10) / 10,
+            competition_level: niche.breakdown.competition >= 60 ? "низкая" : niche.breakdown.competition >= 45 ? "средняя" : "высокая",
+            avg_income: incomeByCity[city.name] ?? 48_500,
+            budget: niche.startup,
+          },
+        }),
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const j = await res.json();
+        if (j.report) {
+          report = j.report;
+          reportSource = j.source === "gigachat" ? "gigachat" : "stub";
+        }
+      }
+    } catch {
+      /* нет бэкенда/таймаут — сохраняем эвристический отчёт */
+    }
+    const r = await saveProject({
+      niche_id: niche.id,
+      niche_title: niche.title,
+      city: city.name,
+      city_name: city.name,
+      score: niche.score,
+      survival: niche.survival,
+      snapshot: {
+        category: niche.category,
+        breakdown: niche.breakdown,
+        score: niche.score,
+        delta: niche.delta,
+        monthly: niche.monthly,
+        margin: niche.margin,
+        startup: niche.startup,
+        avgCheck: niche.avgCheck,
+        survival: niche.survival,
+        demand: niche.demand,
+        tags: niche.tags,
+        insight: niche.insight,
+        report,
+        report_source: reportSource,
+      },
+    });
+    setSaving(false);
+    setSaved(true);
+    onToast(r.source === "api" ? `«${niche.title}» сохранён в историю (сервер)` : `«${niche.title}» сохранён в историю (в браузере)`);
+  };
   const col = scoreColor(niche.score);
   const catCol = CATEGORY_COLOR[niche.category];
   const rev = niche.monthly * city.k;
@@ -203,13 +277,46 @@ export function NichePanel({
           </div>
 
           {/* actions */}
-          <div className="flex gap-3 pb-4">
+          <div className="flex flex-col gap-2.5 pb-4">
             <button
               onClick={onFinance}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-sig py-3 font-display text-[13px] font-bold text-bg0 transition hover:brightness-110 active:scale-[0.98]"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sig py-3 font-display text-[13px] font-bold text-bg0 transition hover:brightness-110 active:scale-[0.98]"
             >
               Рассчитать экономику <IArrowR size={16} />
             </button>
+            <div className="flex gap-2.5">
+              <button
+                onClick={saveAnalysis}
+                disabled={saving || saved}
+                className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg border py-2.5 text-[12.5px] font-bold transition active:scale-[0.98] ${
+                  saved
+                    ? "cursor-default border-sig/40 bg-sig/10 text-sig"
+                    : "border-line bg-bg2 text-ink hover:border-sig/50 hover:text-sig disabled:opacity-60"
+                }`}
+              >
+                {saving ? (
+                  <>
+                    <IRefresh size={15} className="animate-spin" /> Сохраняем…
+                  </>
+                ) : saved ? (
+                  <>
+                    <IClock size={15} /> В истории
+                  </>
+                ) : (
+                  <>
+                    <IStar size={15} /> Сохранить анализ
+                  </>
+                )}
+              </button>
+              {saved && (
+                <button
+                  onClick={onOpenHistory}
+                  className="anim-fade inline-flex items-center justify-center gap-2 rounded-lg border border-sig/50 px-4 py-2.5 text-[12.5px] font-bold text-sig transition hover:bg-sig/10 active:scale-[0.98]"
+                >
+                  Открыть <IArrowR size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </aside>
