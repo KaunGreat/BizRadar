@@ -51,6 +51,26 @@ def ensure_database(db_path: str = DATABASE_PATH) -> None:
             )
             """
         )
+        # Региональная статистика: заполняется ПАКЕТНЫМ загрузчиком (раз в месяц),
+        # рантайм читает только отсюда. Новые метрики (безработица, зарплата,
+        # оборот розницы) добавляются либо колонками, либо в extras (JSON).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS region_stats (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                region_key TEXT    NOT NULL UNIQUE,  -- tomsk, tomskaya_oblast, ...
+                region_name TEXT   NOT NULL,         -- «Томск» (отображаемое)
+                level      TEXT    NOT NULL,         -- city | subject
+                subject_key TEXT,                    -- для city — родительский субъект
+                population INTEGER,                  -- постоянное население
+                avg_income REAL,                     -- среднедушевые доходы, руб/мес
+                extras     TEXT    NOT NULL DEFAULT '{}',  -- JSON: будущие метрики
+                as_of      TEXT,                     -- дата актуальности данных
+                source     TEXT    NOT NULL DEFAULT 'static-fallback',
+                updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
         # Matcher: кэш скоринга локаций (город + ниша, TTL 7 дней — как MarketSnapshot).
         # Городской запрос в Overpass тяжёлый, без кэша каждый запрос — больно.
         conn.execute(

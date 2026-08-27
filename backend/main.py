@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from catalog import NICHES, NICHES_BY_ID
 from database import DATABASE_PATH, ensure_database
+from parsers.region_stats import get_region_stats, list_regions
 from schemas import MatchLocationsRequest, MatchLocationsResponse
 from services.ai_service import RussianLLMService
 from services.location_matcher import (
@@ -108,6 +109,22 @@ def create_report(req: ReportRequest) -> dict:
         "source": llm.last_report_source,  # "gigachat" | "stub"
         "report": report,
     }
+
+
+# -------------------------------------------------- Региональная статистика
+@app.get("/api/regions")
+def regions_api(city: str | None = None) -> dict:
+    """
+    Демография региона/города: население, среднедушевой доход, дата актуальности
+    и источник (source/as_of — для бейджа на фронтенде).
+
+    Данные читаются ТОЛЬКО из БД (пакетный загрузчик Росстат/ЕМИСС, раз в месяц);
+    при отсутствии данных — статичный справочник (source: static-fallback).
+    В рантайме запросов к Росстату нет.
+    """
+    if city:
+        return {"item": get_region_stats(city)}
+    return {"items": list_regions(), "cache": "загрузчик Росстат/ЕМИСС · раз в месяц"}
 
 
 # ------------------------------------------------------- Matcher (v1 API)

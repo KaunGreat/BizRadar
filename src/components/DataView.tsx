@@ -1,4 +1,4 @@
-import { ENDPOINTS, FLYWHEEL, ROADMAP_DONE, ROADMAP_NEXT, STACK } from "../data";
+import { ENDPOINTS, FLYWHEEL, REGIONS_DEMO, ROADMAP_DONE, ROADMAP_NEXT, STACK } from "../data";
 import { ICheck, IClock, ICopy, ILayers, IWallet, IUsers, IBuilding, IBolt } from "./icons";
 
 function Flywheel() {
@@ -124,6 +124,51 @@ export function DataView({ onToast }: { onToast: (msg: string) => void }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* демография: Росстат из БД */}
+      <div className="panel rounded-xl p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-sm font-bold">Демография · GET /api/regions</h3>
+          <span className="rounded border border-line bg-bg2 px-2 py-0.5 font-mono text-[10.5px] text-cy">
+            пакетный загрузчик · раз в месяц · рантайм без сети
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {REGIONS_DEMO.map((r, i) => {
+            const fromDb = r.source !== "static-fallback";
+            return (
+              <div key={r.region} className="panel-soft rounded-xl p-4 anim-rise" style={{ animationDelay: `${i * 60}ms` }}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-display text-[13px] font-bold">{r.region}</span>
+                  <span
+                    className="rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                    style={fromDb ? { borderColor: "#3ce6a455", background: "#3ce6a412", color: "#3ce6a4" } : { borderColor: "#ffc24b55", background: "#ffc24b10", color: "#ffc24b" }}
+                  >
+                    {fromDb ? "БД · Росстат" : "fallback"}
+                  </span>
+                </div>
+                <div className="mt-2.5 flex items-baseline justify-between text-[12px]">
+                  <span className="text-mut">население</span>
+                  <span className="font-semibold tabular text-ink">{r.population.toLocaleString("ru-RU")}</span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between text-[12px]">
+                  <span className="text-mut">доход / чел</span>
+                  <span className="font-semibold tabular text-sig">{r.avg_income.toLocaleString("ru-RU")} ₽</span>
+                </div>
+                <div className="mt-2.5 border-t border-linesoft pt-2 text-[10px] leading-relaxed text-dim">
+                  <span className="font-mono text-mut">as_of {r.as_of}</span> · {r.source}
+                  {r.source.includes("прокси") && <span className="block text-amb/90">доход — уровень субъекта (Росстат не публикует городской)</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3.5 text-[11.5px] leading-relaxed text-dim">
+          Схема принципиальная: загрузчик <code className="font-mono text-mut">python -m parsers.rosstat_loader</code> скачивает датасеты
+          (opendata 7708234640-population · ЕМИСС 57039) и делает upsert в <code className="font-mono text-mut">region_stats</code>;
+          скоринг читает только БД, а при пустой базе честно падает на статичный справочник — продукт работает в любом случае.
+        </p>
       </div>
 
       {/* api + stack */}

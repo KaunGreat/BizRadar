@@ -57,6 +57,19 @@ services:
     depends_on:
       - frontend
 
+  # ---------- пакетный загрузчик статистики Росстата (раз в месяц, не фоновый сервис) ----------
+  # Запускается вручную раз в месяц или по крону хоста:
+  #   docker compose --env-file .env.production run --rm loader
+  # Профиль maintenance не поднимается при обычном `up`.
+  loader:
+    build: ./backend
+    profiles: ["maintenance"]
+    command: ["python", "-m", "parsers.rosstat_loader"]
+    env_file:
+      - .env.production
+    volumes:
+      - db-data:/data/bizradar     # пишет в ту же БД, что читает api
+
 volumes:
   db-data:       # файл SQLite: /data/bizradar/bizradar.db
   caddy_data:    # сертификаты, переживают пересоздание контейнера

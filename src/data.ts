@@ -334,11 +334,12 @@ export const ROADMAP_DONE = [
   "Фронтенд-дашборд: прототип (этот интерфейс) + Next.js-версия в frontend/",
   "Продакшн-упаковка: монорепо backend/frontend, Docker Compose + Caddy, авто-HTTPS",
   "Модуль Matcher: подбор локаций — сетка ~500 м, скоринг ячеек, кэш 7 дней",
+  "Региональная статистика Росстата: пакетный загрузчик → БД, чтение без сети, fallback на справочник",
 ];
 
 export const ROADMAP_NEXT = [
   "Деплой на VPS и E2E-прогон GigaChat с боевым ключом",
-  "Подключение Росстат API вместо статичного справочника",
+  "ЕМИСС-API в загрузчике вместо ручного CSV + cron-обновление датасетов",
   "Скоринг-слой лидов для банков (вероятность старта бизнеса, 60 дней)",
 ];
 
@@ -364,7 +365,15 @@ export const ENDPOINTS = [
   { method: "POST", path: "/api/report", desc: "бизнес-отчёт: GigaChat с fallback на заглушку" },
   { method: "POST", path: "/api/v1/match-locations", desc: "Matcher: сетка 500 м, скор ячеек, топ-локации (кэш 7 дней)" },
   { method: "GET", path: "/api/v1/match-locations/cities", desc: "города в покрытии Matcher'а" },
-  { method: "GET", path: "/api/regions", desc: "демография и доходы (статичный справочник)" },
+  { method: "GET", path: "/api/regions", desc: "демография из БД (загрузчик Росстат/ЕМИСС): source + as_of, fallback на справочник" },
+];
+
+/* Демо-срез GET /api/regions (форма ответа один в один) */
+export const REGIONS_DEMO = [
+  { region: "Томск", level: "city", population: 556_400, avg_income: 48_500, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
+  { region: "Новосибирск", level: "city", population: 1_633_900, avg_income: 52_000, as_of: "2025-01-01", source: "rosstat-opendata + прокси субъекта" },
+  { region: "Москва", level: "city", population: 13_104_200, avg_income: 97_000, as_of: "2025-01-01", source: "rosstat-opendata" },
+  { region: "Казань", level: "city", population: 1_308_700, avg_income: 56_000, as_of: "2024-01-01", source: "static-fallback" },
 ];
 
 /* ---------- форматирование ---------- */
