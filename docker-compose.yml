@@ -6,24 +6,43 @@
 #
 # Трафик:  браузер -> caddy(:80/:443, HTTPS) -> frontend(:3000)
 #          frontend --rewrite /api/*--> api(:8000, только внутри сети)
+#
+# Данные:  api -> PostgreSQL (сервис db, volume pg-data)
+#          Схема накатывается Alembic при старте api (docker-entrypoint.sh).
 # ============================================================
 
 services:
+  # ---------- PostgreSQL: единственный источник данных ----------
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env.production            # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+    volumes:
+      - pg-data:/var/lib/postgresql/data   # данные переживают пересоздание контейнера
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # ---------- бэкенд: ТОЛЬКО внутри docker-сети ----------
   api:
     build: ./backend
     restart: unless-stopped
     env_file:
-      - .env.production            # LLM_* и DATABASE_PATH (секреты — только там)
+      - .env.production            # DATABASE_URL, LLM_* (секреты — только там)
     expose:
       - "8000"                     # намеренно НЕ ports: снаружи бэкенд не виден
-    volumes:
-      - db-data:/data/bizradar     # SQLite переживает пересборку
+    depends_on:
+      db:
+        condition: service_healthy # ждём готовности Postgres
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status == 200 else 1)"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
+      start_period: 15s
       retries: 3
 
   # ---------- фронтенд: ТОЛЬКО внутри docker-сети ----------
@@ -52,13 +71,13 @@ services:
       SITE_ADDRESS: ${SITE_ADDRESS:-bizradar.example.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data     # TLS-сертификаты (Let's Encrypt)
+      - caddy_data:/data           # TLS-сертификаты (Let's Encrypt)
       - caddy_config:/config
     depends_on:
       - frontend
 
   # ---------- пакетный загрузчик статистики Росстата (раз в месяц, не фоновый сервис) ----------
-  # Запускается вручную раз в месяц или по крону хоста:
+  # Запускается вручную или по крону:
   #   docker compose --env-file .env.production run --rm loader
   # Профиль maintenance не поднимается при обычном `up`.
   loader:
@@ -66,11 +85,12 @@ services:
     profiles: ["maintenance"]
     command: ["python", "-m", "parsers.rosstat_loader"]
     env_file:
-      - .env.production
-    volumes:
-      - db-data:/data/bizradar     # пишет в ту же БД, что читает api
+      - .env.production            # DATABASE_URL — пишет в тот же Postgres, что читает api
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
-  db-data:       # файл SQLite: /data/bizradar/bizradar.db
-  caddy_data:    # сертификаты, переживают пересоздание контейнера
+  pg-data:         # PostgreSQL: база BizRadar
+  caddy_data:      # сертификаты, переживают пересоздание контейнера
   caddy_config:

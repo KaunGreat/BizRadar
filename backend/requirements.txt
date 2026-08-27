@@ -4,7 +4,17 @@
 fastapi>=0.110,<1.0
 uvicorn[standard]>=0.29,<1.0
 pydantic>=2.6,<3.0
-python-dotenv>=1.0,<2.0        # подгрузка .env (LLM_PROVIDER, GIGACHAT_*)
+python-dotenv>=1.0,<2.0        # подгрузка .env (DATABASE_URL, LLM_PROVIDER, ...)
+
+# ------------------------------------------------------------
+# Слой данных: SQLAlchemy + Alembic (миграции) + драйвер PostgreSQL.
+#   * DATABASE_URL=postgresql://... -> psycopg2 (в Docker, сервис db)
+#   * DATABASE_URL не задан        -> SQLite (локально, из коробки)
+# Миграции: alembic upgrade head (см. docker-entrypoint.sh)
+# ------------------------------------------------------------
+sqlalchemy>=2.0,<3.0
+alembic>=1.13,<2.0
+psycopg2-binary>=2.9,<3.0      # бинарные колёса — не нужен системный libpq-dev
 
 # ------------------------------------------------------------
 # AI-слой: GigaChat (Сбер) — официальный SDK

@@ -14,10 +14,10 @@ BizRadar · чтение региональной статистики (рант
 from __future__ import annotations
 
 import logging
-import sqlite3
 from typing import Any, Dict, List, Optional
 
-from database import DATABASE_PATH
+from db import SessionLocal
+from models import RegionStat
 from parsers.static_stats import (
     ALIASES,
     CITY_SUBJECT,
@@ -42,14 +42,21 @@ def _resolve_key(name_or_key: str) -> Optional[str]:
 
 def _db_row(key: str) -> Optional[Dict[str, Any]]:
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
-        try:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute("SELECT * FROM region_stats WHERE region_key = ?", (key,)).fetchone()
-            return dict(row) if row else None
-        finally:
-            conn.close()
-    except sqlite3.Error as exc:
+        with SessionLocal() as session:
+            row = session.query(RegionStat).filter(RegionStat.region_key == key).first()
+            if row is None:
+                return None
+            return {
+                "region_key": row.region_key,
+                "region_name": row.region_name,
+                "level": row.level,
+                "subject_key": row.subject_key,
+                "population": row.population,
+                "avg_income": row.avg_income,
+                "as_of": row.as_of,
+                "source": row.source,
+            }
+    except Exception as exc:  # noqa: BLE001 — БД недоступна → статичный справочник
         logger.warning("БД недоступна (%s) — читаю статичный справочник", exc)
         return None
 

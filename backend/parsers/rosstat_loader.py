@@ -49,15 +49,20 @@ import io
 import logging
 import os
 import re
-import sqlite3
 import sys
 import urllib.request
 from datetime import datetime, timezone
 from difflib import get_close_matches
 from typing import Dict, List, Optional, Tuple
 
-from database import DATABASE_PATH, ensure_database
-from parsers.static_stats import ALIASES, CITY_SUBJECT, DISPLAY_NAMES, LEVELS
+from dotenv import load_dotenv
+
+load_dotenv()  # ДО импорта db: DATABASE_URL может лежать в backend/.env
+
+from database import ensure_database  # noqa: E402
+from db import SessionLocal  # noqa: E402
+from models import RegionStat  # noqa: E402
+from parsers.static_stats import ALIASES, CITY_SUBJECT, DISPLAY_NAMES, LEVELS  # noqa: E402
 
 logger = logging.getLogger("bizradar.rosstat")
 
@@ -195,106 +200,114 @@ def match_region(raw_name: str) -> Optional[str]:
 
 
 # ----------------------------------------------------------------- БД
-def upsert_region(conn: sqlite3.Connection, key: str, *, population: Optional[float] = None,
+def upsert_region(session, key: str, *, population: Optional[float] = None,
                   avg_income: Optional[float] = None, as_of: Optional[str] = None,
                   source: str = "rosstat") -> None:
-    conn.execute(
-        """
-        INSERT INTO region_stats (region_key, region_name, level, subject_key,
-                                  population, avg_income, as_of, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(region_key) DO UPDATE SET
-            region_name = excluded.region_name,
-            level       = excluded.level,
-            subject_key = excluded.subject_key,
-            population  = COALESCE(excluded.population, region_stats.population),
-            avg_income  = COALESCE(excluded.avg_income, region_stats.avg_income),
-            as_of       = COALESCE(excluded.as_of, region_stats.as_of),
-            source      = excluded.source,
-            updated_at  = datetime('now')
-        """,
-        (
-            key,
-            DISPLAY_NAMES.get(key, key),
-            LEVELS.get(key, "subject"),
-            CITY_SUBJECT.get(key),
-            int(population) if population is not None else None,
-            int(avg_income) if avg_income is not None else None,
-            as_of,
-            source,
-        ),
-    )
+    """Переносимый upsert (select + update/insert) — без диалект-специфичного
+    ON CONFLICT, работает и на SQLite, и на Postgres.
+
+    Семантика COALESCE сохранена: новое значение затирает старое, только если
+    оно не None (частичные обновления не обнуляют уже загруженные поля).
+    """
+    row = session.query(RegionStat).filter(RegionStat.region_key == key).first()
+    name = DISPLAY_NAMES.get(key, key)
+    level = LEVELS.get(key, "subject")
+    subject = CITY_SUBJECT.get(key)
+    if row is None:
+        row = RegionStat(
+            region_key=key,
+            region_name=name,
+            level=level,
+            subject_key=subject,
+            population=int(population) if population is not None else None,
+            avg_income=int(avg_income) if avg_income is not None else None,
+            as_of=as_of,
+            source=source,
+        )
+        session.add(row)
+    else:
+        row.region_name = name
+        row.level = level
+        row.subject_key = subject
+        if population is not None:
+            row.population = int(population)
+        if avg_income is not None:
+            row.avg_income = int(avg_income)
+        if as_of is not None:
+            row.as_of = as_of
+        row.source = source
+    row.updated_at = datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------- main
 def run(pop_file: Optional[str], income_file: Optional[str], dry_run: bool) -> int:
-    ensure_database(DATABASE_PATH)
-    conn = sqlite3.connect(DATABASE_PATH)
+    ensure_database()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     ok_sources, unmatched = 0, []
 
-    # ---------- 1) население (городской уровень) ----------
+    session = SessionLocal()
     try:
-        text = open(pop_file, encoding="utf-8").read() if pop_file else fetch_population_csv()
-        rows = _parse_stat_csv(text, "численн")
-        matched = 0
-        for r in rows:
-            key = match_region(r["name"])
-            if key is None:
-                if len(unmatched) < 30:
-                    unmatched.append(r["name"])
-                continue
-            # нас интересуют только города продукта и их субъекты
-            if key not in DISPLAY_NAMES:
-                continue
-            if LEVELS.get(key) != "city":
-                continue
-            matched += 1
-            if not dry_run:
-                upsert_region(conn, key, population=r["value"], as_of=r["as_of"], source="rosstat-opendata")
-        logger.info("Население: строк %d, сматчено городов %d", len(rows), matched)
-        ok_sources += 1
-    except Exception as exc:
-        logger.error("Население: источник недоступен или не распознан: %s", exc)
+        # ---------- 1) население (городской уровень) ----------
+        try:
+            text = open(pop_file, encoding="utf-8").read() if pop_file else fetch_population_csv()
+            rows = _parse_stat_csv(text, "численн")
+            matched = 0
+            for r in rows:
+                key = match_region(r["name"])
+                if key is None:
+                    if len(unmatched) < 30:
+                        unmatched.append(r["name"])
+                    continue
+                # нас интересуют только города продукта и их субъекты
+                if key not in DISPLAY_NAMES:
+                    continue
+                if LEVELS.get(key) != "city":
+                    continue
+                matched += 1
+                if not dry_run:
+                    upsert_region(session, key, population=r["value"], as_of=r["as_of"], source="rosstat-opendata")
+            logger.info("Население: строк %d, сматчено городов %d", len(rows), matched)
+            ok_sources += 1
+        except Exception as exc:
+            logger.error("Население: источник недоступен или не распознан: %s", exc)
 
-    # ---------- 2) доходы (уровень субъектов) ----------
-    try:
-        text = open(income_file, encoding="utf-8").read() if income_file else fetch_income_csv()
-        rows = _parse_stat_csv(text, "доход")
-        matched = 0
-        for r in rows:
-            key = match_region(r["name"])
-            if key is None:
-                if len(unmatched) < 60:
-                    unmatched.append(r["name"])
-                continue
-            if key not in DISPLAY_NAMES or LEVELS.get(key) != "subject":
-                continue
-            matched += 1
-            if not dry_run:
-                upsert_region(conn, key, avg_income=r["value"], as_of=r["as_of"], source="emisss-57039")
-        logger.info("Доходы: строк %d, сматчено субъектов %d", len(rows), matched)
-        ok_sources += 1
-    except Exception as exc:
-        logger.error("Доходы: источник недоступен или не распознан: %s", exc)
+        # ---------- 2) доходы (уровень субъектов) ----------
+        try:
+            text = open(income_file, encoding="utf-8").read() if income_file else fetch_income_csv()
+            rows = _parse_stat_csv(text, "доход")
+            matched = 0
+            for r in rows:
+                key = match_region(r["name"])
+                if key is None:
+                    if len(unmatched) < 60:
+                        unmatched.append(r["name"])
+                    continue
+                if key not in DISPLAY_NAMES or LEVELS.get(key) != "subject":
+                    continue
+                matched += 1
+                if not dry_run:
+                    upsert_region(session, key, avg_income=r["value"], as_of=r["as_of"], source="emisss-57039")
+            logger.info("Доходы: строк %d, сматчено субъектов %d", len(rows), matched)
+            ok_sources += 1
+        except Exception as exc:
+            logger.error("Доходы: источник недоступен или не распознан: %s", exc)
 
-    # ---------- 3) прокси: городам — доход их субъекта ----------
-    try:
-        for city, subj in CITY_SUBJECT.items():
-            if city == subj:  # Москва: доход уже записан как субъекту
-                continue
-            row = conn.execute(
-                "SELECT avg_income, as_of FROM region_stats WHERE region_key = ?", (subj,)
-            ).fetchone()
-            if row and row[0] and not dry_run:
-                upsert_region(conn, city, avg_income=row[0], as_of=row[1],
-                              source="emisss-57039 (прокси субъекта)")
-    except sqlite3.Error as exc:
-        logger.warning("Прокси доходов: %s", exc)
+        # ---------- 3) прокси: городам — доход их субъекта ----------
+        try:
+            for city, subj in CITY_SUBJECT.items():
+                if city == subj:  # Москва: доход уже записан как субъекту
+                    continue
+                subj_row = session.query(RegionStat).filter(RegionStat.region_key == subj).first()
+                if subj_row and subj_row.avg_income and not dry_run:
+                    upsert_region(session, city, avg_income=subj_row.avg_income, as_of=subj_row.as_of,
+                                  source="emisss-57039 (прокси субъекта)")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Прокси доходов: %s", exc)
 
-    if not dry_run:
-        conn.commit()
-    conn.close()
+        if not dry_run:
+            session.commit()
+    finally:
+        session.close()
 
     if unmatched:
         path = os.path.join(DATA_DIR, f"unmatched_{now.replace('-', '')}.txt")

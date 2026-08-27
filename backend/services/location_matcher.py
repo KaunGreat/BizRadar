@@ -31,12 +31,12 @@ from __future__ import annotations
 import json
 import logging
 import math
-import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from catalog import NICHES_BY_ID
-from database import DATABASE_PATH
+from db import SessionLocal
+from models import LocationSnapshot
 from services.overpass import (
     BBox,
     OverpassError,
@@ -314,35 +314,48 @@ def _reason(cell: Dict[str, Any], place: int) -> str:
 
 
 # --------------------------------------------------------------------- кэш
-def _conn() -> sqlite3.Connection:
-    return sqlite3.connect(DATABASE_PATH)
+def _is_fresh(created_at: Optional[datetime], ttl_days: Optional[int]) -> bool:
+    """Свежесть снимка считаем в Python — одинаково для SQLite и Postgres
+    (julianday() есть только в SQLite, теперь не нужна)."""
+    if created_at is None:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - created_at) <= timedelta(days=ttl_days or SNAPSHOT_TTL_DAYS)
 
 
 def save_snapshot(city: str, niche_id: str, payload: Dict[str, Any]) -> None:
-    with _conn() as conn:
-        conn.execute(
-            "INSERT INTO location_snapshots (city, niche_id, payload, ttl_days) VALUES (?, ?, ?, ?)",
-            (city, niche_id, json.dumps(payload, ensure_ascii=False), SNAPSHOT_TTL_DAYS),
+    with SessionLocal() as session:
+        session.add(
+            LocationSnapshot(
+                city=city,
+                niche_id=niche_id,
+                payload=json.dumps(payload, ensure_ascii=False),
+                ttl_days=SNAPSHOT_TTL_DAYS,
+            )
         )
+        session.commit()
     logger.info("Кэш локаций сохранён: %s/%s", city, niche_id)
 
 
 def load_snapshot(city: str, niche_id: str, fresh_only: bool) -> Optional[Dict[str, Any]]:
-    ttl_filter = "AND (julianday('now') - julianday(created_at)) <= ttl_days" if fresh_only else ""
-    with _conn() as conn:
-        row = conn.execute(
-            f"""SELECT payload, created_at,
-                       (julianday('now') - julianday(created_at)) <= ttl_days AS is_fresh
-                FROM location_snapshots
-                WHERE city = ? AND niche_id = ? {ttl_filter}
-                ORDER BY id DESC LIMIT 1""",
-            (city, niche_id),
-        ).fetchone()
-    if row is None:
-        return None
-    payload = json.loads(row[0])
-    payload["source"] = "cache" if row[2] else "cache_stale"
-    payload["cache_created_at"] = row[1]
+    with SessionLocal() as session:
+        row = (
+            session.query(LocationSnapshot)
+            .filter(LocationSnapshot.city == city, LocationSnapshot.niche_id == niche_id)
+            .order_by(LocationSnapshot.id.desc())
+            .first()
+        )
+        if row is None:
+            return None
+        fresh = _is_fresh(row.created_at, row.ttl_days)
+        if fresh_only and not fresh:
+            return None
+        payload = json.loads(row.payload)
+        cache_created_at = row.created_at.isoformat() if row.created_at else None
+
+    payload["source"] = "cache" if fresh else "cache_stale"
+    payload["cache_created_at"] = cache_created_at
     return payload
 
 

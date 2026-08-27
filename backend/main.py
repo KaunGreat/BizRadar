@@ -21,20 +21,23 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import sqlite3
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
-from catalog import NICHES, NICHES_BY_ID
-from database import DATABASE_PATH, ensure_database
-from parsers.region_stats import get_region_stats, list_regions
-from schemas import MatchLocationsRequest, MatchLocationsResponse, ProjectCreateRequest
-from services.ai_service import RussianLLMService
-from services.location_matcher import (
+load_dotenv()  # ДО импорта db: DATABASE_URL может лежать в backend/.env
+
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
+
+from catalog import NICHES, NICHES_BY_ID  # noqa: E402
+from database import ensure_database  # noqa: E402
+from db import SessionLocal, is_alive, safe_url, wait_for_db  # noqa: E402
+from models import Project  # noqa: E402
+from parsers.region_stats import get_region_stats, list_regions  # noqa: E402
+from schemas import MatchLocationsRequest, MatchLocationsResponse, ProjectCreateRequest  # noqa: E402
+from services.ai_service import RussianLLMService  # noqa: E402
+from services.location_matcher import (  # noqa: E402
     CityNotSupported,
     InsufficientData,
     NicheNotSupported,
@@ -42,8 +45,6 @@ from services.location_matcher import (
     match_locations,
     supported_cities,
 )
-
-load_dotenv()  # локальный запуск без Docker: подтягиваем .env из backend/
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("bizradar")
@@ -53,8 +54,11 @@ llm = RussianLLMService()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    ensure_database(DATABASE_PATH)
-    logger.info("SQLite готова: %s", DATABASE_PATH)
+    # В Docker ждём, пока Postgres поднимется (retry); для SQLite — мгновенно.
+    # Схемы в контейнере уже накатил Alembic, ensure_database — идемпотентная страховка.
+    wait_for_db(retries=30, delay=2.0)
+    ensure_database()
+    logger.info("БД готова: %s", safe_url())
     yield
 
 
@@ -83,7 +87,8 @@ def health() -> dict:
         "status": "ok",
         "service": "bizradar-api",
         "version": app.version,
-        "database": {"path": DATABASE_PATH, "exists": os.path.exists(DATABASE_PATH)},
+        # url — без пароля; path/exists оставлены для обратной совместимости с фронтендом
+        "database": {"url": safe_url(), "path": safe_url(), "exists": is_alive()},
         "llm": {
             "provider": llm.provider,
             "model": llm.model,
@@ -179,51 +184,38 @@ def match_locations_route(req: MatchLocationsRequest) -> MatchLocationsResponse:
 
 
 # ------------------------------------------------- История анализов (проекты)
+def _project_dict(p: Project) -> dict:
+    """Единообразная сериализация записи истории (для list/get)."""
+    return {
+        "id": p.id,
+        "niche_id": p.niche_id,
+        "niche_title": p.niche_title,
+        "city": p.city,
+        "city_name": p.city_name,
+        "score": p.score,
+        "survival": p.survival,
+        "has_report": bool(p.has_report),
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "snapshot": json.loads(p.snapshot or "{}"),
+    }
+
+
 @app.get("/api/v1/projects")
 def list_projects() -> dict:
     """Сохранённые анализы в обратном хронологическом порядке (со снимком метрик)."""
-    with sqlite3.connect(DATABASE_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM projects ORDER BY id DESC LIMIT 200"
-        ).fetchall()
-    items = [
-        {
-            "id": r["id"],
-            "niche_id": r["niche_id"],
-            "niche_title": r["niche_title"],
-            "city": r["city"],
-            "city_name": r["city_name"],
-            "score": r["score"],
-            "survival": r["survival"],
-            "has_report": bool(r["has_report"]),
-            "created_at": r["created_at"],
-            "snapshot": json.loads(r["snapshot"]),
-        }
-        for r in rows
-    ]
+    with SessionLocal() as session:
+        rows = session.query(Project).order_by(Project.id.desc()).limit(200).all()
+        items = [_project_dict(r) for r in rows]
     return {"items": items, "total": len(items)}
 
 
 @app.get("/api/v1/projects/{project_id}")
 def get_project(project_id: int) -> dict:
-    with sqlite3.connect(DATABASE_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        r = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    if r is None:
-        raise HTTPException(status_code=404, detail=f"анализ №{project_id} не найден")
-    return {
-        "id": r["id"],
-        "niche_id": r["niche_id"],
-        "niche_title": r["niche_title"],
-        "city": r["city"],
-        "city_name": r["city_name"],
-        "score": r["score"],
-        "survival": r["survival"],
-        "has_report": bool(r["has_report"]),
-        "created_at": r["created_at"],
-        "snapshot": json.loads(r["snapshot"]),
-    }
+    with SessionLocal() as session:
+        p = session.query(Project).filter(Project.id == project_id).first()
+        if p is None:
+            raise HTTPException(status_code=404, detail=f"анализ №{project_id} не найден")
+        return _project_dict(p)
 
 
 @app.post("/api/v1/projects", status_code=201)
@@ -232,27 +224,30 @@ def create_project(req: ProjectCreateRequest) -> dict:
     title = req.niche_title or (NICHES_BY_ID.get(req.niche_id) or {}).get("title", req.niche_id)
     snapshot = req.snapshot or {}
     has_report = 1 if snapshot.get("report") else 0
-    with sqlite3.connect(DATABASE_PATH) as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO projects (niche_id, niche_title, city, city_name, score, survival, has_report, snapshot)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                req.niche_id, title, req.city, req.city_name,
-                req.score, req.survival, has_report,
-                json.dumps(snapshot, ensure_ascii=False),
-            ),
+    with SessionLocal() as session:
+        p = Project(
+            niche_id=req.niche_id,
+            niche_title=title,
+            city=req.city,
+            city_name=req.city_name,
+            score=req.score,
+            survival=req.survival,
+            has_report=has_report,
+            snapshot=json.dumps(snapshot, ensure_ascii=False),
         )
-        project_id = cur.lastrowid
-        row = conn.execute("SELECT created_at FROM projects WHERE id = ?", (project_id,)).fetchone()
-    return {"id": project_id, "created_at": row[0], "has_report": bool(has_report)}
+        session.add(p)
+        session.commit()
+        session.refresh(p)
+        project_id = p.id
+        created_at = p.created_at.isoformat() if p.created_at else None
+    return {"id": project_id, "created_at": created_at, "has_report": bool(has_report)}
 
 
 @app.delete("/api/v1/projects/{project_id}")
 def delete_project(project_id: int) -> dict:
-    with sqlite3.connect(DATABASE_PATH) as conn:
-        cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-        if cur.rowcount == 0:
+    with SessionLocal() as session:
+        deleted = session.query(Project).filter(Project.id == project_id).delete()
+        session.commit()
+        if deleted == 0:
             raise HTTPException(status_code=404, detail=f"анализ №{project_id} не найден")
     return {"deleted": project_id}
