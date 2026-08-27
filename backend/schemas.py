@@ -7,9 +7,13 @@ main.py остаётся тонким клеем: маршруты приним�
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+_MIN_PASSWORD_LEN = 8
 
 
 class MatchLocationsRequest(BaseModel):
@@ -84,3 +88,78 @@ class ProjectCreateRequest(BaseModel):
     score: float = 0
     survival: int = 0
     snapshot: Dict[str, Any] = Field(default_factory=dict, description="метрики + отчёт; открываются без повторного парсинга")
+
+
+# ---------------------------------------------------------------- Аутентификация
+def _normalize_email(v: str) -> str:
+    v = v.strip().lower()
+    if not _EMAIL_RE.match(v):
+        raise ValueError("некорректный формат e-mail")
+    return v
+
+
+def _check_password(v: str) -> str:
+    if len(v) < _MIN_PASSWORD_LEN:
+        raise ValueError(f"пароль должен быть не короче {_MIN_PASSWORD_LEN} символов")
+    return v
+
+
+class RegisterRequest(BaseModel):
+    """POST /api/auth/register."""
+
+    email: str
+    password: str
+    name: str = ""
+
+    @field_validator("email")
+    @classmethod
+    def email_ok(cls, v: str) -> str:
+        return _normalize_email(v)
+
+    @field_validator("password")
+    @classmethod
+    def password_ok(cls, v: str) -> str:
+        return _check_password(v)
+
+
+class LoginRequest(BaseModel):
+    """POST /api/auth/login."""
+
+    email: str
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def email_ok(cls, v: str) -> str:
+        return _normalize_email(v)
+
+
+class ChangePasswordRequest(BaseModel):
+    """POST /api/auth/change-password (приватный)."""
+
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_ok(cls, v: str) -> str:
+        return _check_password(v)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(..., description="срок жизни токена, секунд")
+    user: Dict[str, Any]
+
+
+class UserPublic(BaseModel):
+    """Публичное представление пользователя — БЕЗ хэша пароля."""
+
+    id: int
+    email: str
+    name: str
+    role: str
+    status: str
+    created_at: Optional[str] = None
+    last_login_at: Optional[str] = None

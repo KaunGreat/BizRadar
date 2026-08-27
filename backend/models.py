@@ -107,3 +107,51 @@ class Project(Base):
     created_at = Column(DateTime, nullable=False, server_default=_NOW)
 
     __table_args__ = (Index("idx_projects_created", created_at.desc()),)
+
+
+class User(Base):
+    """Пользователь личного кабинета.
+
+    Пароль хранится ТОЛЬКО в виде bcrypt-хэша (password_hash). E-mail
+    уникален и приводится к нижнему регистру при создании. Роль и статус
+    управляются административно; по умолчанию — user / active.
+    """
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(320), nullable=False, unique=True)      # нормализован: нижний регистр
+    password_hash = Column(String(128), nullable=False)           # bcrypt, никогда не хранится открыто
+    name = Column(String(160), nullable=False, server_default=text("''"))
+    role = Column(String(20), nullable=False, server_default=text("'user'"))      # user | admin
+    status = Column(String(20), nullable=False, server_default=text("'active'"))  # active | blocked
+    created_at = Column(DateTime, nullable=False, server_default=_NOW)
+    last_login_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("idx_users_email", "email"),)
+
+
+class ActionLog(Base):
+    """Журнал действий пользователей (аудит).
+
+    user_id может быть NULL для анонимных событий (например, неудачный вход
+    до создания аккаунта). В details — произвольный JSON-контекст; пароли
+    и токены сюда НЕ пишутся (контролируется в services/audit.py).
+    """
+
+    __tablename__ = "action_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=True)                      # NULL = анонимно
+    action = Column(String(64), nullable=False)                   # register, login, login_failed, ...
+    entity_type = Column(String(64), nullable=True)               # niche, location, user, ...
+    entity_id = Column(String(64), nullable=True)
+    ip = Column(String(64), nullable=True)
+    user_agent = Column(String(512), nullable=True)
+    details = Column(Text, nullable=False, server_default=text("'{}'"))   # JSON без секретов
+    created_at = Column(DateTime, nullable=False, server_default=_NOW)
+
+    __table_args__ = (
+        Index("idx_action_logs_user_created", "user_id", created_at.desc()),
+        Index("idx_action_logs_action", "action"),
+    )
