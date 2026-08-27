@@ -333,6 +333,7 @@ export const ROADMAP_DONE = [
   "Интеграция GigaChat с fallback на заглушку (backend/services/ai_service.py)",
   "Фронтенд-дашборд: прототип (этот интерфейс) + Next.js-версия в frontend/",
   "Продакшн-упаковка: монорепо backend/frontend, Docker Compose + Caddy, авто-HTTPS",
+  "Модуль Matcher: подбор локаций — сетка ~500 м, скоринг ячеек, кэш 7 дней",
 ];
 
 export const ROADMAP_NEXT = [
@@ -361,6 +362,8 @@ export const ENDPOINTS = [
   { method: "GET", path: "/api/competitors?niche&city", desc: "точки конкурентов (Overpass API)" },
   { method: "GET", path: "/api/market-snapshot", desc: "снимок рынка (кэш, TTL 7 дней)" },
   { method: "POST", path: "/api/report", desc: "бизнес-отчёт: GigaChat с fallback на заглушку" },
+  { method: "POST", path: "/api/v1/match-locations", desc: "Matcher: сетка 500 м, скор ячеек, топ-локации (кэш 7 дней)" },
+  { method: "GET", path: "/api/v1/match-locations/cities", desc: "города в покрытии Matcher'а" },
   { method: "GET", path: "/api/regions", desc: "демография и доходы (статичный справочник)" },
 ];
 

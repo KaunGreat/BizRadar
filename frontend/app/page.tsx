@@ -123,7 +123,7 @@ function CodeBlock({ title, code }: { title: string; code: string }) {
 
 const MODULES = [
   { k: "Scout", d: "радар ниш и скоринг v1", c: "#3ce6a4" },
-  { k: "Matcher", d: "ниша под профиль и бюджет", c: "#4cc9f0" },
+  { k: "Matcher", d: "конкретные локации: сетка 500 м", c: "#4cc9f0" },
   { k: "Finance", d: "юнит-экономика точки", c: "#ffc24b" },
   { k: "Marketplace", d: "CPA-лиды банкам и франшизам", c: "#a78bfa" },
   { k: "AI", d: "GigaChat с fallback на заглушку", c: "#ff8a5c" },

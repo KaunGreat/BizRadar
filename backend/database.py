@@ -51,6 +51,24 @@ def ensure_database(db_path: str = DATABASE_PATH) -> None:
             )
             """
         )
+        # Matcher: кэш скоринга локаций (город + ниша, TTL 7 дней — как MarketSnapshot).
+        # Городской запрос в Overpass тяжёлый, без кэша каждый запрос — больно.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS location_snapshots (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                city       TEXT    NOT NULL,
+                niche_id   TEXT    NOT NULL,
+                payload    TEXT    NOT NULL,
+                created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                ttl_days   INTEGER NOT NULL DEFAULT 7
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_location_snapshots_city_niche "
+            "ON location_snapshots (city, niche_id)"
+        )
         conn.commit()
         logger.info("БД инициализирована: %s", db_path)
     finally:
