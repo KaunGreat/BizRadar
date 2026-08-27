@@ -1,7 +1,8 @@
 """
 Быстрая проверка интеграции GigaChat.
 
-Запуск:  python scripts/test_gigachat.py
+Запуск:  python backend/scripts/test_gigachat.py   (из корня репозитория)
+   или:  cd backend && python scripts/test_gigachat.py
 
 Сценарии:
   * LLM_PROVIDER=stub (или нет ключа) -> напечатается эвристический отчёт-заглушка
@@ -12,12 +13,15 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# backend/ — корень для импортов (services, catalog)
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND_DIR))
 
-try:  # подтягиваем .env, если он есть
+try:  # подтягиваем .env, если он есть (backend/.env или корневой)
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(BACKEND_DIR / ".env")
+    load_dotenv()  # .env в cwd — для docker-окружения и корневого файла
 except ImportError:
     pass
 

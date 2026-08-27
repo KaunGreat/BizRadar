@@ -1,0 +1,63 @@
+# ============================================================
+# BizRadar — единый деплой-юнит (VPS + Docker)
+#
+# Запуск:
+#   docker compose --env-file .env.production up -d --build
+#
+# Трафик:  браузер -> caddy(:80/:443, HTTPS) -> frontend(:3000)
+#          frontend --rewrite /api/*--> api(:8000, только внутри сети)
+# ============================================================
+
+services:
+  # ---------- бэкенд: ТОЛЬКО внутри docker-сети ----------
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env.production            # LLM_* и DATABASE_PATH (секреты — только там)
+    expose:
+      - "8000"                     # намеренно НЕ ports: снаружи бэкенд не виден
+    volumes:
+      - db-data:/data/bizradar     # SQLite переживает пересборку
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # ---------- фронтенд: ТОЛЬКО внутри docker-сети ----------
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      # внутренний адрес бэкенда по имени сервиса в docker-сети
+      BACKEND_INTERNAL_URL: http://api:8000
+    expose:
+      - "3000"                     # намеренно НЕ ports
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------- единственная точка входа ----------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"        # ACME http-01 challenge
+      - "443:443"      # HTTPS
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    environment:
+      # подставляется из .env.production (--env-file); для теста без домена: SITE_ADDRESS=:80
+      SITE_ADDRESS: ${SITE_ADDRESS:-bizradar.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data     # TLS-сертификаты (Let's Encrypt)
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  db-data:       # файл SQLite: /data/bizradar/bizradar.db
+  caddy_data:    # сертификаты, переживают пересоздание контейнера
+  caddy_config:

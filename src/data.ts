@@ -330,14 +330,15 @@ export const ROADMAP_DONE = [
   "Парсер конкурентов через Overpass API (OSM): бесплатно, без ключей",
   "Кэш снимков рынка MarketSnapshot с TTL 7 дней",
   "Эвристика скоринга выживаемости v1",
-  "Интеграция вызова GigaChat с fallback на заглушку (services/ai_service.py)",
+  "Интеграция GigaChat с fallback на заглушку (backend/services/ai_service.py)",
+  "Фронтенд-дашборд: прототип (этот интерфейс) + Next.js-версия в frontend/",
+  "Продакшн-упаковка: монорепо backend/frontend, Docker Compose + Caddy, авто-HTTPS",
 ];
 
 export const ROADMAP_NEXT = [
-  "Фронтенд-дашборд: деплой прототипа (этот интерфейс)",
-  "Деплой интеграции GigaChat и E2E-прогон с реальным ключом",
-  "Упаковка в Docker / Docker Compose и деплой",
+  "Деплой на VPS и E2E-прогон GigaChat с боевым ключом",
   "Подключение Росстат API вместо статичного справочника",
+  "Скоринг-слой лидов для банков (вероятность старта бизнеса, 60 дней)",
 ];
 
 export const STACK = [

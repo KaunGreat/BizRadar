@@ -1,0 +1,25 @@
+# ============================================================
+# BizRadar · Caddy — единственная наружная точка входа.
+#
+# {$SITE_ADDRESS} подставляется из окружения (docker-compose
+# читает .env.production через --env-file):
+#   SITE_ADDRESS=radar.example.com  -> Caddy сам получит и будет
+#                                      продлевать сертификат Let's Encrypt
+#   SITE_ADDRESS=:80                -> локальный прогон compose без домена
+#
+# Весь трафик уходит во фронтенд; /api/* фронтенд сам проксирует
+# на бэкенд через Next.js rewrites (внутри docker-сети).
+# ============================================================
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# заголовки гигиены
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	reverse_proxy frontend:3000
+}

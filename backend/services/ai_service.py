@@ -10,7 +10,7 @@ Fallback-стратегия (критично для надёжности энд
   таймаут, HTTP-ошибка, неожиданный формат ответа — НЕ роняет эндпоинт,
   а деградирует до заглушки с предупреждением в лог.
 
-Переменные окружения (.env):
+Переменные окружения (.env / .env.production):
   LLM_PROVIDER      stub | gigachat                        (по умолчанию stub)
   GIGACHAT_AUTH_KEY долгоживущий авторизационный ключ (developers.sber.ru)
   GIGACHAT_MODEL    GigaChat | GigaChat Pro | GigaChat Max (по умолчанию GigaChat)
@@ -191,7 +191,7 @@ class RussianLLMService:
         return content.strip()
 
     # --------------------------------------------------------------- заглушка
-    def _stub_report(self, niche: str, region: str, md: Dict[str, Any], note: Optional[str] = None) -> str:
+    def _stub_report(self, niche, region, md, note=None) -> str:
         """Локальная эвристика v1 — тот же структурный контракт, что у GigaChat."""
         self.last_report_source = "stub"
         score = self._heuristic_score(md)

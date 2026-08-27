@@ -193,8 +193,8 @@ class RussianLLMService:
 `;
 
 const ENV_EXAMPLE = `# ============================================================
-# BizRadar — конфигурация AI-слоя (services/ai_service.py)
-# Скопируйте файл в .env и заполните значения.
+# BizRadar — локальный запуск бэкенда БЕЗ Docker (backend/.env.example)
+# Скопируйте в backend/.env. В проде секреты — в корневом .env.production.
 # ============================================================
 
 # Провайдер генерации бизнес-отчётов:
@@ -223,6 +223,10 @@ GIGACHAT_SCOPE=GIGACHAT_API_CORP
 
 # Таймаут запроса, секунды (минимум 5). По истечении — fallback на заглушку.
 GIGACHAT_TIMEOUT=30
+
+# Путь к SQLite-файлу. Локально можно не задавать (создастся backend/data/).
+# В Docker: /data/bizradar/bizradar.db (volume db-data, см. docker-compose.yml).
+# DATABASE_PATH=./data/bizradar.db
 `;
 
 const REQUIREMENTS_TXT = `# ============================================================
@@ -512,9 +516,9 @@ function FlowDemo({ onToast }: { onToast: (m: string) => void }) {
 /* ================= просмотр кода ================= */
 
 const TABS = [
-  { id: "py", file: "services/ai_service.py", code: AI_SERVICE_PY, lang: "py" },
-  { id: "env", file: ".env.example", code: ENV_EXAMPLE, lang: "ini" },
-  { id: "req", file: "requirements.txt", code: REQUIREMENTS_TXT, lang: "ini" },
+  { id: "py", file: "backend/services/ai_service.py", code: AI_SERVICE_PY, lang: "py" },
+  { id: "env", file: "backend/.env.example", code: ENV_EXAMPLE, lang: "ini" },
+  { id: "req", file: "backend/requirements.txt", code: REQUIREMENTS_TXT, lang: "ini" },
 ] as const;
 
 function CodeTabs({ onToast }: { onToast: (m: string) => void }) {
@@ -575,17 +579,17 @@ const VERIFY_STEPS = [
   {
     t: "Установите зависимости",
     d: "Официальный SDK gigachat подтянется вместе с остальным бэкендом.",
-    code: "pip install -r requirements.txt",
+    code: "cd backend\npip install -r requirements.txt",
   },
   {
     t: "Получите ключ GigaChat",
     d: "Кабинет разработчика Сбер → developers.sber.ru → продукт «GigaChat API» → вкладка «Управление доступом» → «Создать ключ» → тип «Авторизационный ключ» (Authorization Key). Скопируйте конфиг и вставьте ключ:",
-    code: "cp .env.example .env\n# затем в .env:\nLLM_PROVIDER=gigachat\nGIGACHAT_AUTH_KEY=MzMzMzMzMzMz...   # длинная base64-строка",
+    code: "cp backend/.env.example backend/.env\n# затем в backend/.env:\nLLM_PROVIDER=gigachat\nGIGACHAT_AUTH_KEY=MzMzMzMzMzMz...   # длинная base64-строка",
   },
   {
     t: "Запустите проверочный скрипт",
     d: "Он вызывает generate_business_report с реальными метриками и печатает, кто сгенерировал отчёт.",
-    code: "python scripts/test_gigachat.py",
+    code: "python backend/scripts/test_gigachat.py",
   },
   {
     t: "Ожидаемый результат (ключ рабочий)",
@@ -741,8 +745,9 @@ export function AiLayer({ onToast }: { onToast: (m: string) => void }) {
 
       <p className="flex items-start gap-2 text-[11.5px] leading-relaxed text-dim">
         <IInfo size={14} className="mt-0.5 shrink-0 text-cy" />
-        Код выше синхронизирован с файлами репозитория: services/ai_service.py, .env.example, requirements.txt,
-        scripts/test_gigachat.py. Следующий шаг roadmap — деплой с ключом и E2E-прогон на реальном GigaChat.
+        Код синхронизирован с монорепо: backend/services/ai_service.py, backend/.env.example, backend/requirements.txt,
+        backend/scripts/test_gigachat.py. Секреты прода — в корневом .env.production (вне git). Следующий шаг — деплой на VPS
+        через docker compose и E2E-прогон GigaChat с боевым ключом.
       </p>
     </div>
   );
