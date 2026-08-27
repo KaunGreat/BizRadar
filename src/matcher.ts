@@ -42,10 +42,23 @@ export interface MatchResult {
 
 export class MatcherError extends Error {}
 
-export const MATCH_CITIES: { key: string; name: string; center: [number, number]; supported: boolean }[] = [
-  { key: "tomsk", name: "Томск", center: [56.465, 84.955], supported: true },
-  { key: "novosibirsk", name: "Новосибирск", center: [55.02, 82.92], supported: true },
-  { key: "moscow", name: "Москва (вне покрытия)", center: [55.75, 37.62], supported: false },
+/**
+ * Статический словарь «город -> центр + bbox». Надёжное центрирование карты:
+ * для этих городов координаты фиксированы; для остальных — геокодер провайдера
+ * (см. geocodeCity). bbox = bbox бэкенда (CITY_BBOX) — зоны всегда внутри.
+ */
+export interface MatcherCity {
+  key: string;
+  name: string;
+  center: [number, number];
+  bbox: [number, number, number, number];
+  supported: boolean;
+}
+
+export const MATCH_CITIES: MatcherCity[] = [
+  { key: "tomsk", name: "Томск", center: [56.465, 84.955], bbox: [56.365, 84.7, 56.555, 85.1], supported: true },
+  { key: "novosibirsk", name: "Новосибирск", center: [55.02, 82.92], bbox: [54.83, 82.7, 55.2, 83.2], supported: true },
+  { key: "moscow", name: "Москва (вне покрытия)", center: [55.75, 37.62], bbox: [55.55, 37.35, 55.95, 37.9], supported: false },
 ];
 
 export const MATCH_NICHES: { id: string; title: string; comp: number }[] = [
@@ -76,6 +89,45 @@ export const SIGNAL_REASON: Record<keyof CellSignals, string> = {
 export function heatColor(score: number): string {
   const h = 16 + (score / 100) * 124;
   return `hsl(${h.toFixed(0)} 74% 52%)`;
+}
+
+/* ---------------- карта: режимы провайдера ---------------- */
+export type MapMode = "provider" | "ymaps" | "no-key" | "fallback";
+
+/**
+ * Границы для fitBounds: bbox города ∪ разброс ячеек (с отступом под радиус).
+ * Карта всегда центрируется и масштабируется так, что видны ВСЕ зоны города.
+ */
+export function zonesExtent(cells: LocationCell[], city: MatcherCity): [[number, number], [number, number]] {
+  let s = city.bbox[0];
+  let w = city.bbox[1];
+  let n = city.bbox[2];
+  let e = city.bbox[3];
+  for (const c of cells) {
+    s = Math.min(s, c.lat - 0.0022);
+    w = Math.min(w, c.lon - 0.0032);
+    n = Math.max(n, c.lat + 0.0022);
+    e = Math.max(e, c.lon + 0.0032);
+  }
+  return [[s, w], [n, e]];
+}
+
+/**
+ * Геокодер провайдера — для городов, которых нет в статическом словаре
+ * MATCH_CITIES. Яндекс отдаёт координаты в порядке [lat, lon].
+ */
+export function geocodeCity(
+  ym: any,
+  name: string
+): Promise<{ center: [number, number]; bounds?: [[number, number], [number, number]] }> {
+  return ym.geocode(name, { kind: "locality", results: 1 }).then((res: any) => {
+    const obj = res.geoObjects.get(0);
+    if (!obj) throw new Error(`геокодер: «${name}» не найден`);
+    return {
+      center: obj.geometry.getCoordinates() as [number, number],
+      bounds: obj.properties.get("boundedBy") as [[number, number], [number, number]] | undefined,
+    };
+  });
 }
 
 /* ---------- детерминированный ГПСЧ ---------- */

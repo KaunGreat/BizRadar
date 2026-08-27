@@ -6,6 +6,7 @@ import {
   heatColor,
   loadMatchLocations,
   type LocationCell,
+  type MapMode,
   type MatchResult,
 } from "../matcher";
 import { useCountUp } from "../hooks";
@@ -81,6 +82,24 @@ export function Matcher({ onToast }: { onToast: (m: string) => void }) {
 
   const handleSelect = useCallback((c: LocationCell) => setSelectedId(c.id), []);
 
+  /* режим карто-провайдера: тост — один раз на режим за сессию вкладки */
+  const [mapMode, setMapMode] = useState<MapMode>("provider");
+  const mapToastRef = useRef<Set<string>>(new Set());
+  const handleMapMode = useCallback(
+    (m: MapMode) => {
+      setMapMode(m);
+      if ((m === "no-key" || m === "fallback") && !mapToastRef.current.has(m)) {
+        mapToastRef.current.add(m);
+        onToast(
+          m === "no-key"
+            ? "Ключ Яндекс.Карт не задан (VITE_YANDEX_MAPS_KEY) — зоны показаны на офлайн-схеме"
+            : "Яндекс.Карты не загрузились — зоны показаны на офлайн-схеме"
+        );
+      }
+    },
+    [onToast]
+  );
+
   const city = MATCH_CITIES.find((c) => c.key === cityKey)!;
   const selected = result?.cells.find((c) => c.id === selectedId) ?? null;
   const [srcLabel, srcColor] = result ? SOURCE_LABEL[result.source] : ["—", "#5d7b90"];
@@ -146,6 +165,21 @@ export function Matcher({ onToast }: { onToast: (m: string) => void }) {
             {srcLabel}
           </span>
         )}
+
+        {/* карто-провайдер */}
+        <span
+          className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-bold transition"
+          style={
+            mapMode === "ymaps"
+              ? { borderColor: "#4cc9f050", background: "#4cc9f012", color: "#4cc9f0" }
+              : mapMode === "provider"
+              ? { borderColor: "#1c3a54", background: "#0f2334", color: "#5d7b90" }
+              : { borderColor: "#a78bfa50", background: "#a78bfa10", color: "#a78bfa" }
+          }
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${mapMode === "provider" ? "animate-pulse" : ""}`} style={{ background: mapMode === "ymaps" ? "#4cc9f0" : mapMode === "provider" ? "#5d7b90" : "#a78bfa", boxShadow: mapMode === "ymaps" ? "0 0 6px #4cc9f0" : undefined }} />
+          {mapMode === "ymaps" ? "Яндекс.Карты · fit по зонам" : mapMode === "provider" ? "загрузка карты…" : "офлайн-схема"}
+        </span>
       </div>
 
       {/* статистика */}
@@ -166,7 +200,8 @@ export function Matcher({ onToast }: { onToast: (m: string) => void }) {
             top={result?.top ?? []}
             selected={selected}
             onSelect={handleSelect}
-            center={city.center}
+            city={city}
+            onModeChange={handleMapMode}
           />
 
           {/* загрузка */}
