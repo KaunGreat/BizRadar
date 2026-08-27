@@ -12,6 +12,7 @@ import { useCountUp } from "./hooks";
 import { Spark } from "./components/charts";
 import { RadarScope, ScanLog } from "./components/RadarScope";
 import { CityMap } from "./components/CityMap";
+import { Matcher } from "./components/Matcher";
 import { NichePanel } from "./components/NichePanel";
 import { Finance, type Prefill } from "./components/Finance";
 import { Marketplace } from "./components/Marketplace";
@@ -36,11 +37,12 @@ import {
   IUsers,
 } from "./components/icons";
 
-type View = "radar" | "map" | "finance" | "market" | "ai" | "data";
+type View = "radar" | "map" | "matcher" | "finance" | "market" | "ai" | "data";
 
 const NAV: { key: View; label: string; icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
   { key: "radar", label: "Нишевый радар", icon: (p) => <IRadar {...p} /> },
   { key: "map", label: "Карта конкурентов", icon: (p) => <IMap {...p} /> },
+  { key: "matcher", label: "Подбор локации", icon: (p) => <ITarget {...p} /> },
   { key: "finance", label: "Финансы", icon: (p) => <ICalc {...p} /> },
   { key: "market", label: "Маркетплейс", icon: (p) => <IStore {...p} /> },
   { key: "ai", label: "ИИ-слой · GigaChat", icon: (p) => <ICpu {...p} /> },
@@ -50,6 +52,7 @@ const NAV: { key: View; label: string; icon: (p: { size?: number; className?: st
 const VIEW_META: Record<View, { title: string; sub: string }> = {
   radar: { title: "Нишевый радар", sub: "Scout · скоринг выживаемости v1 по данным OSM и региональной статистике" },
   map: { title: "Карта конкурентов", sub: "Слой точек из Overpass API · кэш MarketSnapshot, TTL 7 дней" },
+  matcher: { title: "Подбор локации", sub: "Matcher · сетка ~500 м · opportunity = спрос / (1 + конкуренты) · кэш 7 дней" },
   finance: { title: "Финансовая модель", sub: "Finance · юнит-экономика точки и срок возврата вложений" },
   market: { title: "Маркетплейс партнёров", sub: "Marketplace · CPA-лиды банкам, SaaS франшизам, скидки подрядчиков" },
   ai: { title: "ИИ-слой · GigaChat", sub: "RussianLLMService: реальный вызов с fallback на заглушку · services/ai_service.py" },
@@ -479,6 +482,13 @@ export default function App() {
                 <span className="text-[12px] text-dim">выбор ниши перестраивает слой конкурентов</span>
               </div>
               <CityMap key={`${mapNicheId}-${city.name}`} niche={mapNiche} cityK={city.k} cityName={city.name} />
+            </div>
+          )}
+
+          {/* ================= MATCHER ================= */}
+          {view === "matcher" && (
+            <div key="matcher" className="anim-rise">
+              <Matcher onToast={pushToast} />
             </div>
           )}
 
