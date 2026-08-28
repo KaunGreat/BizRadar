@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { login, register, type AuthSession } from "../auth";
-import { IEye, IEyeOff, ILock, IMail, IUser } from "./icons";
+import { AuthError, enterDemoMode, login, register, type AuthSession } from "../auth";
+import { IBolt, IEye, IEyeOff, ILock, IMail, IUser } from "./icons";
 
 type Mode = "login" | "register";
 
@@ -29,11 +29,19 @@ export function AuthForms({ onAuthed }: { onAuthed: (s: AuthSession) => void }) 
   const [name, setName] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ text: string; kind: "http" | "network" } | null>(null);
 
   const switchMode = (m: Mode) => {
     setMode(m);
     setError(null);
+  };
+
+  const fail = (err: unknown) => {
+    if (err instanceof AuthError) {
+      setError({ text: err.message, kind: err.kind });
+    } else {
+      setError({ text: err instanceof Error ? err.message : "Что-то пошло не так", kind: "http" });
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -42,11 +50,11 @@ export function AuthForms({ onAuthed }: { onAuthed: (s: AuthSession) => void }) 
     setError(null);
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Введите корректный e-mail");
+      setError({ text: "Введите корректный e-mail", kind: "http" });
       return;
     }
     if (password.length < 8) {
-      setError("Пароль должен быть не короче 8 символов");
+      setError({ text: "Пароль должен быть не короче 8 символов", kind: "http" });
       return;
     }
 
@@ -58,10 +66,14 @@ export function AuthForms({ onAuthed }: { onAuthed: (s: AuthSession) => void }) 
           : await register(email, password, name.trim());
       onAuthed(session);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Что-то пошло не так");
+      fail(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const enterDemo = () => {
+    onAuthed(enterDemoMode(email || "demo@bizradar.local", name.trim() || undefined));
   };
 
   return (
@@ -131,8 +143,22 @@ export function AuthForms({ onAuthed }: { onAuthed: (s: AuthSession) => void }) 
         </Field>
 
         {error && (
-          <div className="anim-rise rounded-lg border border-cor/40 bg-cor/[0.08] px-3.5 py-2.5 text-[12.5px] text-cor">
-            {error}
+          <div
+            className={`anim-rise rounded-lg border px-3.5 py-2.5 text-[12.5px] leading-relaxed ${
+              error.kind === "network" ? "border-amb/40 bg-amb/[0.08] text-amb" : "border-cor/40 bg-cor/[0.08] text-cor"
+            }`}
+            role="alert"
+          >
+            {error.text}
+            {error.kind === "network" && (
+              <button
+                type="button"
+                onClick={enterDemo}
+                className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-md border border-amb/50 bg-amb/10 py-2 font-display text-[11.5px] font-bold text-amb transition hover:bg-amb/20 active:scale-[0.98]"
+              >
+                <IBolt size={14} /> Войти в демо-режим (без сервера)
+              </button>
+            )}
           </div>
         )}
 

@@ -35,7 +35,6 @@ from models import User
 logger = logging.getLogger("bizradar.auth")
 
 # ------------------------------------------------------------------ конфиг
-JWT_SECRET: str = (os.getenv("JWT_SECRET") or "").strip()
 JWT_ALGORITHM: str = (os.getenv("JWT_ALGORITHM") or "HS256").strip()
 try:
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES") or "60")
@@ -46,10 +45,20 @@ MIN_PASSWORD_LEN = 8
 LOGIN_LIMIT_MAX = 5          # попыток входа...
 LOGIN_LIMIT_WINDOW = 60.0    # ...в течение окна, секунд
 
-if not JWT_SECRET:
-    # Не падаем на старте (локальный dev), но предупреждаем громко: без секрета
-    # подписывать токены нельзя, и auth-эндпоинты вернут 503 до его задания.
-    logger.warning("JWT_SECRET не задан — аутентификация будет недоступна, пока переменная не установлена")
+# JWT_SECRET берётся ТОЛЬКО из окружения. Если переменная не задана (свежая
+# локальная разработка, .env ещё не создан), генерируется ОДНОРАЗОВЫЙ временный
+# секрет: вход работает сразу, но токены не переживут перезапуск процесса.
+# В проде JWT_SECRET всегда задан в .env.production — поведение детерминировано.
+_env_secret = (os.getenv("JWT_SECRET") or "").strip()
+if _env_secret:
+    JWT_SECRET: str = _env_secret
+else:
+    JWT_SECRET = secrets.token_urlsafe(48)
+    logger.warning(
+        "JWT_SECRET не задан — сгенерирован временный секрет для разработки. "
+        "Токены сбросятся при перезапуске сервера. Для постоянного входа задайте "
+        "JWT_SECRET в .env (python -c \"import secrets; print(secrets.token_urlsafe(48))\")"
+    )
 
 _bearer = HTTPBearer(auto_error=False)
 

@@ -83,7 +83,6 @@ from services.ai_service import RussianLLMService  # noqa: E402
 from services.audit import log_action  # noqa: E402
 from services.auth import (  # noqa: E402
     JWT_EXPIRE_MINUTES,
-    JWT_SECRET,
     _request_meta,
     blacklist_token,
     clear_attempts,
@@ -395,11 +394,12 @@ def register(req: RegisterRequest, request: Request) -> dict:
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 def login(req: LoginRequest, request: Request) -> TokenResponse:
-    """Вход: проверка пароля по хэшу, rate limit, JWT при успехе, аудит."""
-    ip, ua = _request_meta(request)
+    """Вход: проверка пароля по хэшу, rate limit, JWT при успехе, аудит.
 
-    if not JWT_SECRET:
-        raise HTTPException(status_code=503, detail="Аутентификация не настроена (нет JWT_SECRET)")
+    JWT_SECRET всегда непуст (env или временный dev-секрет — см. services/auth.py),
+    поэтому отдельная проверка «аутентификация не настроена» не нужна.
+    """
+    ip, ua = _request_meta(request)
 
     # Защита от перебора: ограничение частоты попыток входа по ip+email.
     if too_many_attempts(ip, req.email):

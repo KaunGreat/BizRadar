@@ -317,7 +317,11 @@ export default function App() {
               </span>
               <span className="hidden min-w-0 flex-1 lg:block">
                 <span className="block truncate text-[12px] font-semibold text-ink">{session.user.name || "Профиль"}</span>
-                <span className="block truncate text-[10px] text-dim">{session.user.email}</span>
+                {session.demo ? (
+                  <span className="block text-[10px] font-semibold text-amb">демо-режим · без сервера</span>
+                ) : (
+                  <span className="block truncate text-[10px] text-dim">{session.user.email}</span>
+                )}
               </span>
               <span className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-sig lg:block" style={{ boxShadow: "0 0 6px #3ce6a4" }} />
             </button>

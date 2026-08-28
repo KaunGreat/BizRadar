@@ -33,7 +33,22 @@ const DEMO_KEY = "bizradar-auth-demo-v1";
 
 export const UNAUTHORIZED_EVENT = "bizradar:unauthorized";
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Классифицированная ошибка аутентификации:
+ *  - "http"    — сервер ответил осмысленно (401 неверный пароль, 409 занят, 429 лимит…);
+ *  - "network" — бэкенд недоступен/не найден (сеть, 404, 502/504): форме есть
+ *                что показать («запустите сервер» + демо-режим).
+ */
+export class AuthError extends Error {
+  kind: "network" | "http";
+  status?: number;
+  constructor(message: string, kind: "network" | "http", status?: number) {
+    super(message);
+    this.name = "AuthError";
+    this.kind = kind;
+    this.status = status;
+  }
+}
 
 /* ------------------------------ хранение ------------------------------ */
 export function getToken(): string | null {
@@ -94,7 +109,9 @@ export async function apiFetch(url: string, init: RequestInit = {}, ms = 4000): 
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
     const res = await fetch(url, { ...init, headers, signal: ctrl.signal });
-    if (res.status === 401 && token) {
+    // 401 на самих auth-эндпоинтах (неверный пароль при входе) — это НЕ «сессия
+    // истекла»: не чистим хранилище и не редиректим, форму обработает ответ сама.
+    if (res.status === 401 && token && !url.startsWith("/api/auth/")) {
       clearSession();
       notifyUnauthorized();
     }
@@ -113,59 +130,94 @@ async function tryJson(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
-/** Текст ошибки из { detail } FastAPI, иначе — общая формулировка. */
-function errorMessage(body: Record<string, unknown>, fallback: string): string {
+/** Текст ошибки из { detail } FastAPI (строка), иначе null. */
+function detailText(body: Record<string, unknown>): string | null {
   const d = body.detail;
-  return typeof d === "string" && d ? d : fallback;
+  return typeof d === "string" && d ? d : null;
+}
+
+const NETWORK_STATUSES = new Set([404, 502, 503, 504]);
+
+const HTTP_MESSAGES: Record<number, string> = {
+  401: "Неверный e-mail или пароль.",
+  403: "Аккаунт заблокирован. Обратитесь в поддержку.",
+  409: "Пользователь с таким e-mail уже зарегистрирован — переключитесь на «Вход».",
+  422: "Сервер отклонил данные: проверьте формат e-mail и длину пароля (от 8 символов).",
+  429: "Слишком много попыток входа. Подождите минуту и попробуйте снова.",
+};
+
+/**
+ * Единая обработка неуспешного ответа: различаем «бэкенд не найден/лежит»
+ * (network — форме показываем запуск сервера и демо-режим) и осмысленные
+ * HTTP-ошибки (http — точное сообщение пользователю).
+ */
+function throwForStatus(res: Response, body: Record<string, unknown>): never {
+  const detail = detailText(body);
+  if (!detail && NETWORK_STATUSES.has(res.status)) {
+    throw new AuthError(
+      "Бэкенд не отвечает: эндпоинт аутентификации не найден или сервер недоступен. " +
+        "Запустите API (cd backend && uvicorn main:app --port 8000) — или войдите в демо-режим ниже.",
+      "network",
+      res.status
+    );
+  }
+  throw new AuthError(detail || HTTP_MESSAGES[res.status] || `Сервер вернул ошибку ${res.status}.`, "http", res.status);
 }
 
 /**
- * Вход. Возвращает сессию или бросает Error с человекочитаемым сообщением.
- * При недоступном бэкенде — demo-сессия (помечена demo=true).
+ * Вход. Возвращает сессию либо бросает AuthError с человекочитаемым сообщением:
+ * «неверный пароль», «e-mail занят», «лимит попыток», «сервис недоступен» и т.д.
  */
 export async function login(email: string, password: string): Promise<AuthSession> {
+  let res: Response;
   try {
-    const res = await apiFetch("/api/auth/login", {
+    res = await apiFetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const body = await tryJson(res);
-    if (!res.ok) throw new Error(errorMessage(body, "Не удалось войти. Проверьте e-mail и пароль."));
-    const session: AuthSession = {
-      user: body.user as AuthUser,
-      token: String(body.access_token ?? ""),
-      demo: false,
-    };
-    saveSession(session.token, session.user, false);
-    return session;
   } catch (e) {
-    // Сеть недоступна (демо-стенд) — включаем demo-режим, если это не ошибка валидации.
-    if (e instanceof TypeError || (e instanceof Error && e.name === "AbortError")) {
-      return demoSession(email);
-    }
-    throw e;
+    // fetch упал сам: нет сети, CORS, таймаут — бэкенд недоступен.
+    throw new AuthError(
+      "Не удалось связаться с сервером. Проверьте, запущен ли бэкенд (uvicorn main:app --port 8000), — или войдите в демо-режим ниже.",
+      "network"
+    );
   }
+  const body = await tryJson(res);
+  if (!res.ok) throwForStatus(res, body);
+  const token = String(body.access_token ?? "");
+  if (!token || !body.user) {
+    throw new AuthError("Сервер вернул некорректный ответ (нет токена). Обновите страницу и попробуйте снова.", "http", res.status);
+  }
+  const session: AuthSession = { user: body.user as AuthUser, token, demo: false };
+  saveSession(session.token, session.user, false);
+  return session;
 }
 
 /** Регистрация + автоматический вход. */
 export async function register(email: string, password: string, name: string): Promise<AuthSession> {
+  let res: Response;
   try {
-    const res = await apiFetch("/api/auth/register", {
+    res = await apiFetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, name }),
     });
-    const body = await tryJson(res);
-    if (!res.ok) throw new Error(errorMessage(body, "Не удалось создать аккаунт."));
-    // Бэкенд отдает 201 без токена — сразу входим.
-    return await login(email, password);
-  } catch (e) {
-    if (e instanceof TypeError || (e instanceof Error && e.name === "AbortError")) {
-      return demoSession(email, name);
-    }
-    throw e;
+  } catch {
+    throw new AuthError(
+      "Не удалось связаться с сервером. Проверьте, запущен ли бэкенд, — или войдите в демо-режим ниже.",
+      "network"
+    );
   }
+  const body = await tryJson(res);
+  if (!res.ok) throwForStatus(res, body);
+  // Бэкенд отдаёт 201 без токена — сразу входим (ошибки входа пробрасываются как есть).
+  return await login(email, password);
+}
+
+/** Явный вход в демо-режим (бэкенд недоступен): сессия живёт в localStorage. */
+export function enterDemoMode(email: string, name?: string): AuthSession {
+  return demoSession(email, name);
 }
 
 /** Выход: отзыв токена на сервере (best effort) + очистка локальной сессии. */
