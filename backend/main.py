@@ -45,6 +45,7 @@ load_dotenv()  # ДО импорта db: DATABASE_URL может лежать в
 from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError  # noqa: E402
 
 from catalog import NICHES, NICHES_BY_ID  # noqa: E402
 from database import ensure_database  # noqa: E402
@@ -370,23 +371,43 @@ def _user_public(user: User) -> dict:
 
 @app.post("/api/auth/register", status_code=201)
 def register(req: RegisterRequest, request: Request) -> dict:
-    """Регистрация: валидация e-mail/пароля, bcrypt-хэш, аудит. Пароль не хранится открыто."""
+    """Регистрация: валидация e-mail/пароля, bcrypt-хэш, аудит. Пароль не хранится открыто.
+
+    Ошибки БД обрабатываются явно и НЕ превращаются в непрозрачный 500:
+      * IntegrityError (дубликат e-mail, в т.ч. гонка с проверкой) -> 409;
+      * SQLAlchemyError (нет таблицы users / БД недоступна)        -> 503 + полный трейсбек в лог.
+    """
     ip, ua = _request_meta(request)
-    with SessionLocal() as session:
-        exists = session.query(User).filter(User.email == req.email).first()
-        if exists:
-            log_action("register_failed", ip=ip, user_agent=ua,
-                       details={"reason": "email_taken", "email": req.email})
-            raise HTTPException(status_code=409, detail="Пользователь с таким e-mail уже существует")
-        user = User(
-            email=req.email,
-            password_hash=hash_password(req.password),  # только хэш, никогда не пароль
-            name=req.name,
+    try:
+        with SessionLocal() as session:
+            exists = session.query(User).filter(User.email == req.email).first()
+            if exists:
+                log_action("register_failed", ip=ip, user_agent=ua,
+                           details={"reason": "email_taken", "email": req.email})
+                raise HTTPException(status_code=409, detail="Пользователь с таким e-mail уже существует")
+            user = User(
+                email=req.email,
+                password_hash=hash_password(req.password),  # только хэш, никогда не пароль
+                name=req.name,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            user_id = user.id
+    except HTTPException:
+        raise  # 409 выше — штатный ответ, не ошибка
+    except IntegrityError:
+        # Дубликат e-mail, который проскочил проверку (параллельный запрос).
+        log_action("register_failed", ip=ip, user_agent=ua,
+                   details={"reason": "email_taken_race", "email": req.email})
+        raise HTTPException(status_code=409, detail="Пользователь с таким e-mail уже существует")
+    except SQLAlchemyError:
+        logger.exception("Регистрация: сбой записи в БД (email=%s)", req.email)
+        raise HTTPException(
+            status_code=503,
+            detail="Сервис временно недоступен: не удалось сохранить пользователя. "
+                   "Проверьте, что применены миграции (alembic upgrade head), и попробуйте позже.",
         )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-        user_id = user.id
     log_action("register", user_id=user_id, entity_type="user", entity_id=str(user_id),
                ip=ip, user_agent=ua, details={"email": req.email})
     return {"id": user_id, "email": req.email, "message": "Аккаунт создан. Войдите, чтобы получить токен."}
@@ -406,24 +427,33 @@ def login(req: LoginRequest, request: Request) -> TokenResponse:
         log_action("login_rate_limited", ip=ip, user_agent=ua, details={"email": req.email})
         raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
 
-    with SessionLocal() as session:
-        user = session.query(User).filter(User.email == req.email).first()
-        if user is None or not verify_password(req.password, user.password_hash):
-            register_failed_attempt(ip, req.email)
-            log_action("login_failed", ip=ip, user_agent=ua,
-                       details={"email": req.email, "reason": "bad_credentials"})
-            raise HTTPException(status_code=401, detail="Неверный e-mail или пароль")
-        if user.status != "active":
-            log_action("login_failed", user_id=user.id, ip=ip, user_agent=ua,
-                       details={"email": req.email, "reason": "blocked"})
-            raise HTTPException(status_code=403, detail="Аккаунт заблокирован")
+    try:
+        with SessionLocal() as session:
+            user = session.query(User).filter(User.email == req.email).first()
+            if user is None or not verify_password(req.password, user.password_hash):
+                register_failed_attempt(ip, req.email)
+                log_action("login_failed", ip=ip, user_agent=ua,
+                           details={"email": req.email, "reason": "bad_credentials"})
+                raise HTTPException(status_code=401, detail="Неверный e-mail или пароль")
+            if user.status != "active":
+                log_action("login_failed", user_id=user.id, ip=ip, user_agent=ua,
+                           details={"email": req.email, "reason": "blocked"})
+                raise HTTPException(status_code=403, detail="Аккаунт заблокирован")
 
-        # Успех: сбрасываем счётчик попыток, обновляем last_login_at.
-        clear_attempts(ip, req.email)
-        user.last_login_at = datetime.now(timezone.utc)
-        session.commit()
-        payload_user = _user_public(user)
-        user_id = user.id
+            # Успех: сбрасываем счётчик попыток, обновляем last_login_at.
+            clear_attempts(ip, req.email)
+            user.last_login_at = datetime.now(timezone.utc)
+            session.commit()
+            payload_user = _user_public(user)
+            user_id = user.id
+    except HTTPException:
+        raise  # 401/403 выше — штатные ответы, не ошибки
+    except SQLAlchemyError:
+        logger.exception("Вход: сбой чтения/записи БД (email=%s)", req.email)
+        raise HTTPException(
+            status_code=503,
+            detail="Сервис временно недоступен: не удалось выполнить вход. Попробуйте позже.",
+        )
 
     token = create_access_token(user_id, req.email, payload_user["role"])
     log_action("login", user_id=user_id, entity_type="user", entity_id=str(user_id),
