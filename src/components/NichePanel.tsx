@@ -10,9 +10,10 @@ import {
   type Niche,
 } from "../data";
 import { useTypewriter } from "../hooks";
+import { downloadBusinessPlan } from "../pdf";
 import { saveProject } from "../projects";
 import { AreaChart, PentagonRadar, ScoreRing } from "./charts";
-import { IArrowR, IBolt, IClock, ICpu, IMap, IRefresh, IStar, ITrendDown, ITrendUp, IUser, IX } from "./icons";
+import { IArrowR, IBolt, IClock, ICpu, IDownload, IMap, IRefresh, ISpinner, IStar, ITrendDown, ITrendUp, IUser, IX } from "./icons";
 
 function InsightText({ text }: { text: string }) {
   const { out, done } = useTypewriter(text, 10);
@@ -48,6 +49,26 @@ export function NichePanel({
   const [nonce, setNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  /* Скачать бизнес-план (PDF): тот же пайплайн анализа — метрики из кэша,
+     ИИ-отчёт, скоринг. Имя файла (латиница) приходит от бэкенда. */
+  const downloadPdf = async () => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const filename = await downloadBusinessPlan({
+        niche: niche.title,
+        region: city.name,
+        budget: Math.round(niche.startup * (1 + (city.k - 1) * 0.5)),
+      });
+      onToast(`Бизнес-план загружен: ${filename}`);
+    } catch (e) {
+      onToast(e instanceof Error ? `Не удалось получить PDF: ${e.message}` : "Не удалось получить PDF");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   /* Сохранить анализ: пробуем получить ИИ-отчёт, кладём снимок в историю.
      Без бэкенда отчёт деградирует до эвристики — сохранение работает всегда.
@@ -331,6 +352,30 @@ export function NichePanel({
                   Открыть <IArrowR size={14} />
                 </button>
               )}
+            </div>
+
+            {/* бизнес-план в PDF */}
+            <div className="rounded-xl border border-cy/25 bg-cy/[0.04] p-3.5">
+              <button
+                onClick={downloadPdf}
+                disabled={pdfBusy}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-cy/50 bg-cy/10 py-2.5 text-[12.5px] font-bold text-cy transition hover:bg-cy/20 active:scale-[0.98] disabled:opacity-60"
+              >
+                {pdfBusy ? (
+                  <>
+                    <ISpinner size={15} className="animate-spin" /> Готовим документ…
+                  </>
+                ) : (
+                  <>
+                    <IDownload size={15} /> Скачать бизнес-план (PDF)
+                  </>
+                )}
+              </button>
+              <p className="mt-2 text-[10.5px] leading-relaxed text-dim">
+                Внутри: титул с индексом выживаемости, ключевые цифры, анализ рынка,
+                отчёт ИИ-аналитика, риски и точки роста, рекомендации. Имя файла — латиницей,
+                например <span className="font-mono text-mut">bizradar_kofeynya_tomsk_…pdf</span>.
+              </p>
             </div>
           </div>
         </div>

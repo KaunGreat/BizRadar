@@ -153,6 +153,20 @@ class TokenResponse(BaseModel):
     user: Dict[str, Any]
 
 
+class PdfReportRequest(BaseModel):
+    """POST /api/v1/report/pdf — бизнес-план в PDF.
+
+    Принимает те же параметры, что и анализ: ниша (id или название), регион,
+    бюджет. Секции — опционально (иначе PDF_SECTIONS из конфига): фундамент
+    для бесплатной/премиум-версий.
+    """
+
+    niche: str
+    region: str = "Российская Федерация"
+    budget: float = Field(0, ge=0, description="бюджет запуска, руб.; 0 — взять из каталога/кэша")
+    sections: Optional[List[str]] = Field(None, description="список id секций; пусто — из конфига")
+
+
 class UserPublic(BaseModel):
     """Публичное представление пользователя — БЕЗ хэша пароля."""
 

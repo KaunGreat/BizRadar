@@ -168,6 +168,13 @@ export const ICompass = make(
 export const IFlame = make(
   <path d="M12 3s1 2.5 1 4.5c2 1 4 3.4 4 6.5a5.5 5.5 0 0 1-11 0c0-2.5 1.4-4.6 3-6 .4 1.2 1 2 2 2.5C10.5 8 11 5 12 3Z" />
 );
+export const IDownload = make(
+  <>
+    <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+  </>
+);
+export const ISpinner = make(<path d="M12 3a9 9 0 1 0 9 9" />);
 export const IUser = make(
   <>
     <circle cx="12" cy="8" r="4" />

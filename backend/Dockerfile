@@ -6,6 +6,20 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Системные зависимости WeasyPrint (рендер PDF бизнес-плана):
+# pango/cairo/gdk-pixbuf — типографика и растеризация,
+# fonts-dejavu-core — шрифт с ПОЛНЫМ покрытием кириллицы (критично!),
+# shared-mime-info — для корректной работы fontconfig/mime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libharfbuzz0b \
+        libgdk-pixbuf-2.0-0 \
+        libffi-dev \
+        shared-mime-info \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # зависимости — отдельным слоем, чтобы не переустанавливать при изменении кода
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

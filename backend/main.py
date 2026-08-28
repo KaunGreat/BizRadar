@@ -6,6 +6,8 @@ BizRadar · FastAPI — модульный монолит (точка входа
   GET  /api/niches                    — каталог ниш со скорингом
   GET  /api/niches/{niche_id}         — детальная карточка ниши
   POST /api/report                    — бизнес-отчёт (GigaChat, fallback на заглушку)
+  POST /api/v1/report/pdf             — бизнес-план в PDF (Jinja2 + WeasyPrint, кириллица)
+  GET  /api/v1/report/pdf/sections    — реестр секций PDF (конфиг free/premium)
   GET  /api/v1/match-locations/cities — города, поддерживаемые Matcher'ом
   POST /api/v1/match-locations        — подбор локаций: сетка ~500 м, скор, топ (кэш 7 дней)
 
@@ -28,6 +30,7 @@ BizRadar · FastAPI — модульный монолит (точка входа
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -39,23 +42,32 @@ from dotenv import load_dotenv
 load_dotenv()  # ДО импорта db: DATABASE_URL может лежать в backend/.env
 
 from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from catalog import NICHES, NICHES_BY_ID  # noqa: E402
 from database import ensure_database  # noqa: E402
 from db import SessionLocal, is_alive, safe_url, wait_for_db  # noqa: E402
-from models import Project, User  # noqa: E402
+from models import MarketSnapshot, Project, User  # noqa: E402
 from parsers.region_stats import get_region_stats, list_regions  # noqa: E402
 from schemas import (  # noqa: E402
     ChangePasswordRequest,
     LoginRequest,
     MatchLocationsRequest,
     MatchLocationsResponse,
+    PdfReportRequest,
     ProjectCreateRequest,
     RegisterRequest,
     TokenResponse,
     UserPublic,
+)
+from services.pdf_report import (  # noqa: E402
+    PdfEngineUnavailable,
+    available_sections,
+    build_pdf_context,
+    make_pdf_filename,
+    render_business_plan_pdf,
+    resolve_sections,
 )
 from services.ai_service import RussianLLMService  # noqa: E402
 from services.audit import log_action  # noqa: E402
@@ -202,6 +214,135 @@ def create_report(
         "source": llm.last_report_source,  # "gigachat" | "stub"
         "report": report,
     }
+
+
+# ------------------------------------------------- Бизнес-план (PDF)
+def _resolve_niche(raw: str) -> tuple[Optional[str], Optional[dict]]:
+    """Ниша по id или по названию (как приходит из фронтенда)."""
+    if raw in NICHES_BY_ID:
+        return raw, NICHES_BY_ID[raw]
+    wanted = raw.strip().lower()
+    for nid, n in NICHES_BY_ID.items():
+        if n["title"].lower() == wanted:
+            return nid, n
+    return None, None
+
+
+def _cached_market_data(niche_id: str) -> Optional[dict]:
+    """Метрики рынка из кэша market_snapshots — тяжёлый парсинг не перезапускаем.
+
+    Толерантен к форме payload: берёт payload['market_data'], если есть,
+    иначе сам payload, если он похож на словарь метрик.
+    """
+    try:
+        with SessionLocal() as session:
+            row = (
+                session.query(MarketSnapshot)
+                .filter(MarketSnapshot.niche_id == niche_id)
+                .order_by(MarketSnapshot.id.desc())
+                .first()
+            )
+            if row is None:
+                return None
+            payload = json.loads(row.payload)
+            if not isinstance(payload, dict):
+                return None
+            md = payload.get("market_data")
+            if isinstance(md, dict):
+                return md
+            if "competitors_count" in payload:
+                return payload
+            return None
+    except Exception:  # noqa: BLE001 — кэш недоступен -> метрики каталога
+        return None
+
+
+@app.get("/api/v1/report/pdf/sections")
+def pdf_sections() -> dict:
+    """Реестр секций бизнес-плана (для настройки и будущего free/premium)."""
+    return {"items": available_sections()}
+
+
+@app.post("/api/v1/report/pdf")
+def report_pdf(
+    req: PdfReportRequest,
+    request: Request,
+    user: Optional[User] = Depends(get_optional_user),
+) -> StreamingResponse:
+    """
+    Бизнес-план в PDF: титул, ключевые цифры, анализ рынка, ИИ-отчёт,
+    риски/рост, рекомендации, дисклеймер. Состав секций — из PDF_SECTIONS
+    (или параметра sections).
+
+    Пайплайн переиспользует основной анализ: метрики — из кэша
+    market_snapshots (без повторного парсинга города), скоринг — каталог,
+    ИИ-отчёт — generate_business_report (GigaChat, fallback на заглушку).
+    """
+    niche_id, niche = _resolve_niche(req.niche)
+    if niche is not None:
+        title = niche["title"]
+        score = float(niche["score"])
+        survival = int(niche["survival"])
+        base_md = dict(niche.get("market_data") or {})
+    else:
+        # Ниша вне каталога: метрики придут из кэша/запроса, скор нейтральный.
+        title = req.niche
+        score, survival, base_md = 50.0, 55, {}
+
+    # 1) метрики рынка: кэш market_snapshots поверх каталожных значений
+    market_data = {**base_md}
+    cached = _cached_market_data(niche_id) if niche_id else None
+    snapshot_created: Optional[str] = None
+    if cached:
+        for key in ("competitors_count", "density_per_100k", "competition_level", "avg_income", "budget"):
+            if key in cached and cached[key] is not None:
+                market_data[key] = cached[key]
+        snapshot_created = "кэша market_snapshots"
+    if req.budget > 0:
+        market_data["budget"] = req.budget
+
+    # 2) ИИ-отчёт — тот же, что в основном анализе
+    report_text = llm.generate_business_report(title, req.region, market_data)
+
+    # 3) город для титула: «Томская область, г. Томск» -> «Томск»
+    city_name = req.region.split(",")[-1].strip()
+
+    sections = resolve_sections(req.sections)
+    ctx = build_pdf_context(
+        niche_title=title,
+        region=req.region,
+        city_name=city_name,
+        market_data=market_data,
+        score=score,
+        survival=survival,
+        report_text=report_text,
+        report_source=llm.last_report_source,
+        snapshot_created=snapshot_created,
+        sections=sections,
+    )
+
+    try:
+        pdf_bytes = render_business_plan_pdf(ctx)
+    except PdfEngineUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    filename = make_pdf_filename(title, req.region)
+    ip, ua = _request_meta(request)
+    log_action(
+        "report_pdf",
+        user_id=user.id if user else None,
+        entity_type="niche",
+        entity_id=niche_id or title,
+        ip=ip,
+        user_agent=ua,
+        details={"region": req.region, "sections": sections, "filename": filename, "source": llm.last_report_source},
+    )
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # --------------------------------------------------------- Аутентификация
