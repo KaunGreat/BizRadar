@@ -177,3 +177,26 @@ class UserPublic(BaseModel):
     status: str
     created_at: Optional[str] = None
     last_login_at: Optional[str] = None
+
+
+# ------------------------------------------------------------ Финансовая модель
+class FinanceParams(BaseModel):
+    """Параметры юнит-экономики. Все поля опциональны: что не передано —
+    берётся из пресета ниши с региональной поправкой."""
+
+    avg_check: Optional[float] = Field(None, description="средний чек, ₽")
+    clients_per_day: Optional[float] = Field(None, description="клиентов в день")
+    days_per_month: Optional[float] = Field(None, description="рабочих дней в месяце")
+    margin_pct: Optional[float] = Field(None, description="маржа, % выручки после переменных затрат")
+    rent: Optional[float] = Field(None, description="аренда, ₽/мес")
+    staff: Optional[float] = Field(None, description="ФОТ, ₽/мес")
+    other_fixed: Optional[float] = Field(None, description="прочие постоянные, ₽/мес")
+    investment: Optional[float] = Field(None, description="стартовые инвестиции, ₽")
+
+
+class FinanceModelRequest(BaseModel):
+    """POST /api/v1/finance/model — юнит-экономика точки."""
+
+    niche: str = Field(..., description="id ниши из каталога: coffee, pet, dental, ...")
+    region: str = Field("tomsk", description="регион/город для поправки (томск, москва, «Томск»...)")
+    params: Optional[FinanceParams] = Field(None, description="пользовательские значения поверх пресета")

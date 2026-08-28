@@ -10,6 +10,7 @@ BizRadar · FastAPI — модульный монолит (точка входа
   GET  /api/v1/report/pdf/sections    — реестр секций PDF (конфиг free/premium)
   GET  /api/v1/match-locations/cities — города, поддерживаемые Matcher'ом
   POST /api/v1/match-locations        — подбор локаций: сетка ~500 м, скор, топ (кэш 7 дней)
+  POST /api/v1/finance/model          — юнит-экономика: пресет ниши+регион, показатели, серия 12 мес
 
   Аутентификация (JWT, см. services/auth.py):
   POST /api/auth/register             — регистрация (bcrypt, валидация)
@@ -52,6 +53,7 @@ from models import MarketSnapshot, Project, User  # noqa: E402
 from parsers.region_stats import get_region_stats, list_regions  # noqa: E402
 from schemas import (  # noqa: E402
     ChangePasswordRequest,
+    FinanceModelRequest,
     LoginRequest,
     MatchLocationsRequest,
     MatchLocationsResponse,
@@ -60,6 +62,14 @@ from schemas import (  # noqa: E402
     RegisterRequest,
     TokenResponse,
     UserPublic,
+)
+from services.finance_model import (  # noqa: E402
+    FINANCE_DEFAULTS,
+    PARAM_KEYS,
+    build_prefill,
+    build_series,
+    compute_model,
+    sanitize_params,
 )
 from services.pdf_report import (  # noqa: E402
     PdfEngineUnavailable,
@@ -481,6 +491,59 @@ def regions_api(city: str | None = None) -> dict:
     if city:
         return {"item": get_region_stats(city)}
     return {"items": list_regions(), "cache": "загрузчик Росстат/ЕМИСС · раз в месяц"}
+
+
+# --------------------------------------------------------- Финансовая модель
+@app.post("/api/v1/finance/model")
+def finance_model(
+    req: FinanceModelRequest,
+    request: Request,
+    user: Optional[User] = Depends(get_optional_user),
+) -> dict:
+    """
+    Юнит-экономика точки: детерминированная математика поверх данных
+    «ниша + регион», без внешних API и без повторного парсинга.
+
+    Возвращает эффективные параметры (пресет ниши с региональной поправкой,
+    поверх — значения пользователя), все расчётные показатели и серию
+    «выручка/расходы/накопленный поток» за 12 месяцев для графика.
+    """
+    if req.niche not in FINANCE_DEFAULTS:
+        raise HTTPException(status_code=404, detail=f"для ниши «{req.niche}» нет финансового пресета")
+
+    prefill = build_prefill(req.niche, req.region)
+    overrides = {}
+    if req.params is not None:
+        overrides = {k: v for k, v in req.params.model_dump(exclude_none=True).items() if k in PARAM_KEYS}
+    params = sanitize_params({**prefill["params"], **overrides})
+
+    results = compute_model(params)
+    series = build_series(params, results)
+
+    ip, ua = _request_meta(request)
+    log_action(
+        "finance_model",
+        user_id=user.id if user else None,
+        entity_type="niche",
+        entity_id=req.niche,
+        ip=ip,
+        user_agent=ua,
+        details={
+            "region": req.region,
+            "profit": results["profit"],
+            "payback_months": results["payback_months"],
+            "custom_params": len(overrides),
+        },
+    )
+
+    return {
+        "niche": req.niche,
+        "niche_title": (NICHES_BY_ID.get(req.niche) or {}).get("title", req.niche),
+        "params": params,
+        "results": results,
+        "series": series,
+        "meta": {**prefill["meta"], "custom_overrides": sorted(overrides)},
+    }
 
 
 # ------------------------------------------------------- Matcher (v1 API)
