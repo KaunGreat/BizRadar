@@ -1,0 +1,96 @@
+# ============================================================
+# BizRadar — единый деплой-юнит (VPS + Docker)
+#
+# Запуск:
+#   docker compose --env-file .env.production up -d --build
+#
+# Трафик:  браузер -> caddy(:80/:443, HTTPS) -> frontend(:3000)
+#          frontend --rewrite /api/*--> api(:8000, только внутри сети)
+#
+# Данные:  api -> PostgreSQL (сервис db, volume pg-data)
+#          Схема накатывается Alembic при старте api (docker-entrypoint.sh).
+# ============================================================
+
+services:
+  # ---------- PostgreSQL: единственный источник данных ----------
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env.production            # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+    volumes:
+      - pg-data:/var/lib/postgresql/data   # данные переживают пересоздание контейнера
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------- бэкенд: ТОЛЬКО внутри docker-сети ----------
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env.production            # DATABASE_URL, LLM_* (секреты — только там)
+    expose:
+      - "8000"                     # намеренно НЕ ports: снаружи бэкенд не виден
+    depends_on:
+      db:
+        condition: service_healthy # ждём готовности Postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # ---------- фронтенд: ТОЛЬКО внутри docker-сети ----------
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      # внутренний адрес бэкенда по имени сервиса в docker-сети
+      BACKEND_INTERNAL_URL: http://api:8000
+    expose:
+      - "3000"                     # намеренно НЕ ports
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------- единственная точка входа ----------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"        # ACME http-01 challenge
+      - "443:443"      # HTTPS
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    environment:
+      # подставляется из .env.production (--env-file); для теста без домена: SITE_ADDRESS=:80
+      SITE_ADDRESS: ${SITE_ADDRESS:-bizradar.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data           # TLS-сертификаты (Let's Encrypt)
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+  # ---------- пакетный загрузчик статистики Росстата (раз в месяц, не фоновый сервис) ----------
+  # Запускается вручную или по крону:
+  #   docker compose --env-file .env.production run --rm loader
+  # Профиль maintenance не поднимается при обычном `up`.
+  loader:
+    build: ./backend
+    profiles: ["maintenance"]
+    command: ["python", "-m", "parsers.rosstat_loader"]
+    env_file:
+      - .env.production            # DATABASE_URL — пишет в тот же Postgres, что читает api
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg-data:         # PostgreSQL: база BizRadar
+  caddy_data:      # сертификаты, переживают пересоздание контейнера
+  caddy_config:

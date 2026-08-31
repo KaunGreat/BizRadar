@@ -1,0 +1,29 @@
+# ---------- секреты: никогда не коммитить ----------
+.env
+.env.production
+
+# ---------- python ----------
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# ---------- node ----------
+node_modules/
+.next/
+out/
+
+# ---------- сборки и данные ----------
+dist/
+backend/data/
+*.db
+*.sqlite
+caddy_data/
+caddy_config/
+
+# ---------- разное ----------
+.DS_Store
+*.log
+build/

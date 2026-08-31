@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_title }} — BizRadar</title>
+<style>
+  /* ============ BizRadar · бизнес-план · печатная вёрстка ============ */
+  /* Кириллица: первым в стеке — DejaVu Sans (полное покрытие, ставится
+     fonts-dejavu-core в Docker и почти всегда есть локально). */
+  @page {
+    size: A4;
+    margin: 20mm 16mm 24mm;
+    @top-right {
+      content: "BizRadar · бизнес-план";
+      font-family: "DejaVu Sans", "PT Sans", sans-serif;
+      font-size: 8pt; letter-spacing: 0.08em; color: #93a1ac; text-transform: uppercase;
+    }
+    @bottom-left {
+      content: "bizradar · радар бизнес-ниш";
+      font-family: "DejaVu Sans", "PT Sans", sans-serif;
+      font-size: 7.5pt; color: #93a1ac;
+    }
+    @bottom-center {
+      content: "Отчёт сформирован автоматически на основе открытых данных и не является финансовой рекомендацией";
+      font-family: "DejaVu Sans", "PT Sans", sans-serif;
+      font-size: 7pt; color: #93a1ac;
+    }
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      font-family: "DejaVu Sans", "PT Sans", sans-serif;
+      font-size: 8pt; color: #93a1ac;
+    }
+  }
+  @page :first { margin-top: 0; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "DejaVu Sans", "PT Sans", "Liberation Sans", sans-serif;
+    font-size: 10.5pt; line-height: 1.55; color: #22313c;
+  }
+  strong { color: #16222c; }
+
+  h2.section {
+    font-size: 15pt; font-weight: 700; color: #16222c;
+    margin: 26pt 0 4pt; letter-spacing: 0.01em;
+    border-bottom: 2.5pt solid #0e7a5f; padding-bottom: 5pt;
+    page-break-after: avoid;
+  }
+  h2.section .num { color: #0e7a5f; font-size: 11pt; margin-right: 8pt; }
+  .lead { color: #5c6b78; font-size: 9.5pt; margin: 0 0 12pt; }
+
+  /* ================= титульный лист ================= */
+  .cover {
+    page-break-after: always;
+    padding: 30mm 14mm 0;
+  }
+  .cover-brand {
+    display: flex; align-items: center; gap: 9pt;
+    color: #16222c;
+  }
+  .cover-brand .word {
+    font-size: 15pt; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .cover-brand .word em { font-style: normal; color: #0e7a5f; }
+  .cover-brand .tag {
+    margin-left: auto; font-size: 8pt; text-transform: uppercase;
+    letter-spacing: 0.18em; color: #93a1ac;
+  }
+  .cover-rule { height: 2.5pt; background: #0e7a5f; margin: 10pt 0 34pt; }
+  .cover-grid { display: flex; gap: 18pt; align-items: flex-start; }
+  .cover-text { flex: 1; }
+  .cover-kicker {
+    font-size: 9pt; text-transform: uppercase; letter-spacing: 0.22em;
+    color: #0e7a5f; font-weight: 700; margin-bottom: 10pt;
+  }
+  .cover-title {
+    font-size: 27pt; font-weight: 700; line-height: 1.18; color: #16222c; margin: 0;
+  }
+  .cover-sub { font-size: 12pt; color: #5c6b78; margin: 10pt 0 0; }
+  .cover-meta {
+    margin-top: 30pt; display: flex; gap: 0;
+    border-top: 1pt solid #dde4e1; border-bottom: 1pt solid #dde4e1;
+  }
+  .cover-meta div { flex: 1; padding: 9pt 12pt 9pt 0; }
+  .cover-meta div + div { border-left: 1pt solid #dde4e1; padding-left: 12pt; }
+  .cover-meta .k { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.14em; color: #93a1ac; }
+  .cover-meta .v { font-size: 10.5pt; font-weight: 700; color: #16222c; margin-top: 2pt; }
+
+  /* кольцо индекса (SVG — рендерится WeasyPrint'ом) */
+  .ring-box { width: 150pt; text-align: center; }
+  .ring-num { font-size: 30pt; font-weight: 700; color: #0e7a5f; margin-top: -108pt; line-height: 1; }
+  .ring-of { font-size: 9pt; color: #93a1ac; margin-top: 2pt; }
+  .ring-cap {
+    margin: 44pt auto 0; display: inline-block;
+    font-size: 9pt; font-weight: 700; color: #0e7a5f;
+    border: 1.2pt solid #0e7a5f; border-radius: 20pt; padding: 4pt 14pt;
+  }
+
+  /* ================= ключевые показатели ================= */
+  .stats { display: flex; flex-wrap: wrap; gap: 10pt; margin-top: 8pt; }
+  .stat {
+    width: calc(33.333% - 7pt); background: #f4f7f6;
+    border: 1pt solid #e3e9e7; border-radius: 6pt; padding: 10pt 12pt;
+  }
+  .stat .k { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.1em; color: #5c6b78; }
+  .stat .v { font-size: 15pt; font-weight: 700; color: #16222c; margin-top: 3pt; }
+  .stat .s { font-size: 8pt; color: #93a1ac; margin-top: 2pt; }
+
+  /* ================= анализ рынка ================= */
+  table.metrics {
+    width: 100%; border-collapse: collapse; margin: 6pt 0 14pt;
+    font-size: 9.5pt;
+  }
+  table.metrics th {
+    text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.1em;
+    color: #5c6b78; border-bottom: 1.5pt solid #c9d4cf; padding: 5pt 8pt;
+  }
+  table.metrics td { border-bottom: 1pt solid #e3e9e7; padding: 6pt 8pt; }
+  table.metrics td:first-child { color: #5c6b78; }
+  table.metrics td:last-child { font-weight: 700; color: #16222c; text-align: right; }
+  .interp p { margin: 0 0 9pt; }
+  .interp p::first-letter { /* лёгкий акцент первого абзаца */ }
+
+  /* ================= ИИ-отчёт ================= */
+  .ai-box { background: #fbfdfc; border: 1pt solid #e3e9e7; border-radius: 6pt; padding: 12pt 16pt; }
+  .ai-title { font-size: 13pt; font-weight: 700; color: #16222c; margin: 4pt 0 8pt; }
+  .ai-h {
+    font-size: 10.5pt; font-weight: 700; color: #0e7a5f;
+    margin: 14pt 0 4pt; text-transform: uppercase; letter-spacing: 0.06em; font-size: 9.5pt;
+  }
+  .ai-box p { margin: 0 0 7pt; }
+  .ai-box ul, .ai-box ol { margin: 2pt 0 8pt; padding-left: 18pt; }
+  .ai-box li { margin-bottom: 3pt; }
+  .ai-box blockquote {
+    margin: 8pt 0; padding: 7pt 12pt; background: #fff7e8;
+    border-left: 3pt solid #c7860b; color: #6b5312; font-size: 9.5pt; border-radius: 0 5pt 5pt 0;
+  }
+  .ai-src { font-size: 8pt; color: #93a1ac; margin-top: 10pt; }
+
+  /* ================= риски / рост ================= */
+  .two-col { display: flex; gap: 14pt; }
+  .two-col .col { flex: 1; }
+  .col h5 {
+    font-size: 9pt; text-transform: uppercase; letter-spacing: 0.12em; margin: 0 0 7pt;
+    padding-bottom: 4pt;
+  }
+  .col.risks h5 { color: #c4483f; border-bottom: 2pt solid #c4483f; }
+  .col.growth h5 { color: #0e7a5f; border-bottom: 2pt solid #0e7a5f; }
+  .col ul { margin: 0; padding-left: 16pt; }
+  .col li { margin-bottom: 7pt; font-size: 9.5pt; }
+
+  /* ================= рекомендации ================= */
+  ol.steps { margin: 6pt 0 0; padding-left: 0; list-style: none; counter-reset: step; }
+  ol.steps li {
+    counter-increment: step; position: relative; padding: 8pt 10pt 8pt 40pt; margin-bottom: 7pt;
+    background: #f4f7f6; border: 1pt solid #e3e9e7; border-radius: 6pt; font-size: 9.5pt;
+  }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute; left: 10pt; top: 8pt;
+    width: 19pt; height: 19pt; border-radius: 50%;
+    background: #0e7a5f; color: #fff; font-weight: 700; font-size: 10pt;
+    text-align: center; line-height: 19pt;
+  }
+
+  /* ================= дисклеймер ================= */
+  .disclaimer {
+    margin-top: 24pt; border: 1.2pt solid #dde4e1; border-radius: 6pt;
+    padding: 12pt 16pt; background: #fafbfa; color: #5c6b78; font-size: 8.5pt;
+  }
+  .disclaimer .h { font-weight: 700; color: #16222c; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 5pt; }
+</style>
+</head>
+<body>
+
+{% if "cover" in sections %}
+<section class="cover">
+  <div class="cover-brand">
+    <svg width="30" height="30" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="21" fill="#0e7a5f" opacity="0.12"/>
+      <circle cx="24" cy="24" r="21" fill="none" stroke="#0e7a5f" stroke-width="2"/>
+      <circle cx="24" cy="24" r="12" fill="none" stroke="#0e7a5f" stroke-width="1.4" opacity="0.6"/>
+      <line x1="24" y1="24" x2="42" y2="24" stroke="#0e7a5f" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="24" cy="24" r="3" fill="#0e7a5f"/>
+      <circle cx="32" cy="15" r="2.4" fill="#c7860b"/>
+    </svg>
+    <span class="word">Biz<em>Radar</em></span>
+    <span class="tag">радар бизнес-ниш</span>
+  </div>
+  <div class="cover-rule"></div>
+
+  <div class="cover-grid">
+    <div class="cover-text">
+      <div class="cover-kicker">Бизнес-план · экспресс-анализ</div>
+      <h1 class="cover-title">{{ niche_title }}</h1>
+      <p class="cover-sub">{{ region }}</p>
+
+      <div class="cover-meta">
+        <div>
+          <div class="k">Дата</div>
+          <div class="v">{{ date_ru }}</div>
+        </div>
+        <div>
+          <div class="k">Подготовлено</div>
+          <div class="v">BizRadar</div>
+        </div>
+        <div>
+          <div class="k">Источник</div>
+          <div class="v">{{ source_note.split(":")[0] }}: {{ "GigaChat" if "GigaChat" in source_note else "эвристика v1" }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ring-box">
+      <svg width="150" height="150" viewBox="0 0 150 150">
+        <circle cx="75" cy="75" r="54" fill="none" stroke="#e3e9e7" stroke-width="11"/>
+        <circle cx="75" cy="75" r="54" fill="none" stroke="#0e7a5f" stroke-width="11"
+                stroke-linecap="round" stroke-dasharray="{{ score_dash }} {{ ring_c }}"
+                transform="rotate(-90 75 75)"/>
+      </svg>
+      <div class="ring-num">{{ score }}</div>
+      <div class="ring-of">из 100 · индекс выживаемости</div>
+      <div><span class="ring-cap">{{ verdict }}</span></div>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% set ns = namespace(n=0) %}
+
+{% if "summary" in sections %}
+{% set ns.n = ns.n + 1 %}
+<h2 class="section"><span class="num">{{ "%02d" | format(ns.n) }}</span>Ключевые показатели</h2>
+<p class="lead">Сводка по нише «{{ niche_title }}» ({{ region }}). {{ snapshot_note }}.</p>
+<div class="stats">
+  {% for k, v, s in metrics %}
+  <div class="stat">
+    <div class="k">{{ k }}</div>
+    <div class="v">{{ v }}</div>
+    <div class="s">{{ s }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if "market" in sections %}
+{% set ns.n = ns.n + 1 %}
+<h2 class="section"><span class="num">{{ "%02d" | format(ns.n) }}</span>Анализ рынка</h2>
+<p class="lead">Интерпретация метрик снимка рынка простым языком.</p>
+<table class="metrics">
+  <tr><th>Метрика</th><th style="text-align:right">Значение</th></tr>
+  <tr><td>Прямые конкуренты в радиусе</td><td>{{ metrics[2][1] }}</td></tr>
+  <tr><td>Плотность точек (на 100 тыс. жителей)</td><td>{{ metrics[3][1] }}</td></tr>
+  <tr><td>Уровень конкуренции</td><td>{{ competition_level }}</td></tr>
+  <tr><td>Среднедушевой доход</td><td>{{ metrics[4][1] }} / мес</td></tr>
+  <tr><td>Бюджет запуска</td><td>{{ metrics[5][1] }}</td></tr>
+</table>
+<div class="interp">
+  {% for p in market_paragraphs %}
+  <p>{{ p }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if "ai_report" in sections %}
+{% set ns.n = ns.n + 1 %}
+<h2 class="section"><span class="num">{{ "%02d" | format(ns.n) }}</span>Отчёт ИИ-аналитика</h2>
+<p class="lead">Полный разбор ниши, сгенерированный аналитическим движком по переданным метрикам.</p>
+<div class="ai-box">
+  {{ ai_html | safe }}
+  <div class="ai-src">{{ source_note }}</div>
+</div>
+{% endif %}
+
+{% if "risks_growth" in sections %}
+{% set ns.n = ns.n + 1 %}
+<h2 class="section"><span class="num">{{ "%02d" | format(ns.n) }}</span>Риски и точки роста</h2>
+<div class="two-col">
+  <div class="col risks">
+    <h5>Ключевые риски</h5>
+    <ul>
+      {% for r in risks %}<li>{{ r }}</li>{% endfor %}
+    </ul>
+  </div>
+  <div class="col growth">
+    <h5>Точки роста</h5>
+    <ul>
+      {% for g in growth %}<li>{{ g }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{% if "recommendations" in sections %}
+{% set ns.n = ns.n + 1 %}
+<h2 class="section"><span class="num">{{ "%02d" | format(ns.n) }}</span>Рекомендации и следующие шаги</h2>
+<p class="lead">Порядок действий на первые 4–6 недель.</p>
+<ol class="steps">
+  {% for r in recommendations %}<li>{{ r }}</li>{% endfor %}
+</ol>
+{% endif %}
+
+{% if "disclaimer" in sections %}
+<div class="disclaimer">
+  <div class="h">Дисклеймер</div>
+  {{ disclaimer }}
+</div>
+{% endif %}
+
+</body>
+</html>
